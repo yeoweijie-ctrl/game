@@ -1,3 +1,1162 @@
-jervis 
-dihdih
-i touch kids
+<!DOCTYPE html>
+<html lang="en">
+<head>
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>Cave Generation - Organic Lakes</title>
+   <style>
+       body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; user-select: none; }
+       canvas { display: block; }
+       
+       #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; text-shadow: 1px 1px 2px black; z-index: 10; }
+       #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; font-family: sans-serif; }
+       
+       /* Minecraft UI Container */
+       #mc-screen {
+           position: absolute;
+           top: 0; left: 0; width: 100%; height: 100%;
+           display: none;
+           justify-content: center;
+           align-items: center;
+           background: rgba(0,0,0,0.4);
+           z-index: 20;
+       }
+       #mc-screen.open { display: flex; }
+
+
+       /* Main Window (Inventory / Crafting Table) */
+       .mc-window {
+           background: #c6c6c6;
+           padding: 10px;
+           border: 4px solid #555;
+           box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+           display: flex;
+           flex-direction: column;
+           gap: 10px;
+           image-rendering: pixelated;
+       }
+
+
+       /* Generic Slot */
+       .mc-slot {
+           width: 40px; height: 40px;
+           background: #8b8b8b;
+           border-top: 3px solid #373737;
+           border-left: 3px solid #373737;
+           border-right: 3px solid #ffffff;
+           border-bottom: 3px solid #ffffff;
+           box-shadow: inset 0 0 0 1px #000;
+           margin: 1px;
+           position: relative;
+           display: flex; align-items: center; justify-content: center;
+       }
+       .mc-slot.out-slot { background: #9b9b9b; }
+       
+       .mc-item {
+           width: 24px; height: 24px;
+           transform: rotate(45deg);
+           border: 1px solid rgba(0,0,0,0.4);
+           pointer-events: none;
+       }
+       .mc-count {
+           position: absolute;
+           bottom: -4px; right: 0px;
+           font-size: 16px; font-weight: bold;
+           color: #fff;
+           text-shadow: 2px 2px 0 #000;
+           pointer-events: none;
+       }
+
+
+       /* Layout Helpers */
+       .mc-row { display: flex; gap: 4px; justify-content: center; align-items: center; }
+       .mc-col { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
+       .mc-spacer { width: 20px; }
+       .mc-arrow { font-size: 24px; color: #555; font-weight: bold; }
+
+
+       .mc-grid-2x2 { display: grid; grid-template-columns: repeat(2, 40px); grid-template-rows: repeat(2, 40px); gap: 2px; }
+       .mc-grid-3x3 { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); gap: 2px; }
+       .mc-main-inv { display: grid; grid-template-columns: repeat(9, 40px); grid-template-rows: repeat(3, 40px); gap: 2px; }
+       
+       /* Always-on Hotbar */
+       #mc-hotbar {
+           position: absolute;
+           bottom: 20px; left: 50%;
+           transform: translateX(-50%);
+           display: grid;
+           grid-template-columns: repeat(9, 40px);
+           grid-template-rows: repeat(1, 40px);
+           gap: 2px;
+           background: rgba(198, 198, 198, 0.9);
+           padding: 10px;
+           border: 4px solid #555;
+           box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
+           z-index: 10;
+       }
+       .mc-slot.selected {
+           border-color: #fff;
+           box-shadow: 0 0 0 2px #fff, inset 0 0 0 1px #000;
+           outline: 2px solid #fff;
+       }
+
+
+       /* Drag Ghost */
+       #drag-ghost {
+           position: absolute;
+           pointer-events: none;
+           z-index: 1000;
+           display: none;
+       }
+       #drag-ghost .mc-item { transform: rotate(45deg) scale(1.1); }
+   </style>
+</head>
+<body>
+
+
+<div id="loading">Generating...</div>
+<div id="ui">
+   <div>WASD: Move | V: Ghost/Human | E: Inventory | C: Craft (Near Table) | L/R Click: Move/Split</div>
+   <div id="pos"></div>
+</div>
+
+
+<div id="mc-hotbar"></div>
+<div id="mc-screen"><div id="mc-window"></div></div>
+<div id="drag-ghost"></div>
+
+
+<canvas id="gameCanvas"></canvas>
+
+
+<script>
+   // ==========================================
+   // 🛠️ TWEAKABLE PARAMETERS
+   // ==========================================
+   const MAP_W = 800;          
+   const MAP_H = 800;          
+   const TILE_SIZE = 32;        
+
+
+   const CAMERA_SPEED = 6;     
+   const CAMERA_SPRINT_SPEED = 14;
+   const WATER_SPEED_MULT = 0.2;    
+   const MINING_SPEED_MULT = 1;  
+
+
+   const INITIAL_WALL_PERCENT = 0.70;
+   const CA_SIMULATION_STEPS = 9;    
+   const HOLE_SURVIVE_MIN_NEIGHBORS = 3;
+   const WALL_ERODE_MIN_NEIGHBORS = 4;  
+
+
+   const SPAWN_ROOM_RADIUS = 7;
+   const WALL_CONNECT_DIVISOR = 2;     
+   const WALL_CONNECT_MAX_DIST = 3;    
+
+
+   const LAKE_DENSITY_DIVISOR = 10000;  
+   const LAKE_MIN_SIZE = 150;           
+   const LAKE_MAX_SIZE = 200;         
+   const LAKE_MIN_SHORELINE = 8;        
+   const LAKE_MIN_WALL_TOUCH = 16;      
+   const LAKE_GRID_SIZE = 24;           
+
+
+   const WATER_ENGULF_MIN_NEIGHBORS = 8;  
+   const WATER_SMOOTH_STEPS = 2;          
+
+
+   const ORE_DENSITY_DIVISOR = 5000;   
+   const ORE_MIN_WHITE_TOUCH = 6;      
+
+
+   // -- Single-tile ore spawn chance, rolled per wall tile in initMap() --
+   const IRON_SPAWN_CHANCE = 0.002;   // 0.2%
+   const COAL_SPAWN_CHANCE = 0.005;    // 0.5%
+
+
+   // -- Coal/Iron Vein Clustering (Core Keeper style: ore clumps together,
+   // and coal/iron sometimes bleed into the same vein) --
+   const ORE_VEIN_SPREAD_CHANCE = 0.75;  // chance a coal/iron tile spreads into one adjacent wall
+   const ORE_VEIN_MIX_CHANCE = 0.;     // chance that spread tile becomes the OTHER ore type
+   const ORE_VEIN_PASSES = 4;            // how many spread passes to run (bigger clumps)
+
+
+   // -- Wood (Core Keeper style: small tree clusters scattered on open floor) --
+   const WOOD_DENSITY_DIVISOR = 40;      // numberOfClusters = (MAP_W * MAP_H) / this
+   const WOOD_CLUSTER_MIN = 2;
+   const WOOD_CLUSTER_MAX = 8;
+
+
+   // ==========================================
+   // 🏃 ENGINE LOGIC
+   // ==========================================
+   const canvas = document.getElementById('gameCanvas');
+   const ctx = canvas.getContext('2d');
+
+
+   let map = [];
+   let generating = true;
+
+
+   const camera = { x: 0, y: 0 };
+   const keys = {};
+   let mode = 'ghost'; 
+   
+   let ePrevDown = false;
+   let vPrevDown = false;
+   let cPrevDown = false;
+
+
+   // --- Inventory State (Minecraft sizing: 9 hotbar + 27 main = 36) ---
+   let inventory = new Array(36).fill(null); 
+   let armor = new Array(4).fill(null);
+   let craft2 = new Array(4).fill(null);
+   let craft3 = new Array(9).fill(null);
+   let out2 = null;
+   let out3 = null;
+   
+   let selectedSlot = 0; 
+   let activeUI = 'none'; // 'none', 'inventory', 'crafting'
+   let craftingTablePos = { x: 0, y: 0 };
+   let nearTable = false;
+   let droppedItems = []; // <-- was missing entirely, caused a ReferenceError on the first frame and silently crashed the whole render loop (that's why the screen was just black)
+
+
+   // --- Recipes ---
+   // 3=Blue, 4=Green, 5=Red, 6=Purple, 8=Coal, 9=Iron
+   // 10=Scanner, 11=Helmet, 12=Chestplate, 13=Block
+   // 14=Leggings, 15=Boots, 16=Pickaxe, 17=Sword, 18=Torch, 19=Furnace
+   const recipes = [
+       { size: 2, pattern: [4, 4, 4, 4], result: 13 }, // 2x2 Block
+       { size: 3, pattern: [4, 4, 4, 4, 0, 4, 0, 0, 0], result: 11 }, // Helmet
+       { size: 3, pattern: [5, 0, 5, 5, 6, 5, 5, 5, 5], result: 12 }, // Chestplate
+       { size: 3, pattern: [0, 3, 0, 3, 5, 3, 0, 3, 0], result: 10 }, // Scanner
+
+       // --- Armor (completes the set: Helmet, Chestplate, Leggings, Boots) ---
+       { size: 3, pattern: [9, 9, 9, 9, 0, 9, 9, 0, 9], result: 14 }, // Leggings
+       { size: 3, pattern: [9, 0, 9, 9, 0, 9, 0, 0, 0], result: 15 }, // Boots
+
+       // --- Utilities ---
+       { size: 3, pattern: [9, 9, 9, 0, 8, 0, 0, 8, 0], result: 16 }, // Pickaxe (iron head, coal handle)
+       { size: 3, pattern: [0, 9, 0, 0, 9, 0, 0, 8, 0], result: 17 }, // Sword (iron blade, coal handle)
+       { size: 2, pattern: [8, 0, 0, 0], result: 18 },                // Torch (just coal, no table needed)
+       { size: 3, pattern: [3, 3, 3, 3, 0, 3, 3, 3, 3], result: 19 }  // Furnace (blue ore ring)
+   ];
+
+
+   // --- Dragging State ---
+   let draggingItem = null;
+   let dragGhost = null;
+
+
+   window.addEventListener('keydown', e => {
+       keys[e.key.toLowerCase()] = true;
+       if (e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'c') {
+           e.preventDefault(); // Prevent typing in background
+       }
+   });
+   window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+   
+   // Prevent right-click context menu
+   window.addEventListener('contextmenu', e => e.preventDefault());
+   
+   function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+   window.addEventListener('resize', resize); resize();
+
+
+   // --- INVENTORY UI SETUP ---
+   const mcScreen = document.getElementById('mc-screen');
+   const mcWindow = document.getElementById('mc-window');
+   const hotbarDiv = document.getElementById('mc-hotbar');
+   const dragGhostEl = document.getElementById('drag-ghost');
+
+
+   // Build static hotbar
+   for(let i = 0; i < 9; i++) {
+       let slot = createSlot('inv-' + i);
+       hotbarDiv.appendChild(slot);
+   }
+
+
+   function createSlot(id) {
+       let slot = document.createElement('div');
+       slot.className = 'mc-slot';
+       slot.dataset.id = id;
+       slot.addEventListener('mousedown', handleSlotClick);
+       return slot;
+   }
+
+
+   function openUI(type) {
+       activeUI = type;
+       mcWindow.innerHTML = '';
+       
+       let topRow = document.createElement('div');
+       topRow.className = 'mc-row';
+
+
+       if (type === 'inventory') {
+           // Left: Armor
+           let armorCol = document.createElement('div');
+           armorCol.className = 'mc-col';
+           for(let i=0; i<4; i++) armorCol.appendChild(createSlot('armor-' + i));
+           
+           let spacer1 = document.createElement('div');
+           spacer1.className = 'mc-spacer';
+
+
+           // Middle: 2x2 Craft
+           let craft2Grid = document.createElement('div');
+           craft2Grid.className = 'mc-grid-2x2';
+           for(let i=0; i<4; i++) craft2Grid.appendChild(createSlot('craft2-' + i));
+
+
+           let spacer2 = document.createElement('div');
+           spacer2.className = 'mc-spacer';
+
+
+           // Right: Output
+           let outCol = document.createElement('div');
+           outCol.className = 'mc-col';
+           let outSlot = createSlot('out2-0');
+           outSlot.classList.add('out-slot');
+           outCol.appendChild(outSlot);
+
+
+           topRow.appendChild(armorCol);
+           topRow.appendChild(spacer1);
+           topRow.appendChild(craft2Grid);
+           topRow.appendChild(spacer2);
+           topRow.appendChild(outCol);
+       } else if (type === 'crafting') {
+           // Left: 3x3 Craft
+           let craft3Grid = document.createElement('div');
+           craft3Grid.className = 'mc-grid-3x3';
+           for(let i=0; i<9; i++) craft3Grid.appendChild(createSlot('craft3-' + i));
+
+
+           let spacer = document.createElement('div');
+           spacer.className = 'mc-spacer';
+
+
+           // Right: Output
+           let outCol = document.createElement('div');
+           outCol.className = 'mc-col';
+           let outSlot = createSlot('out3-0');
+           outSlot.classList.add('out-slot');
+           outCol.appendChild(outSlot);
+
+
+           topRow.appendChild(craft3Grid);
+           topRow.appendChild(spacer);
+           topRow.appendChild(outCol);
+       }
+
+
+       mcWindow.appendChild(topRow);
+
+
+       // Main Inventory
+       let mainInv = document.createElement('div');
+       mainInv.className = 'mc-main-inv';
+       for(let i=9; i<36; i++) mainInv.appendChild(createSlot('inv-' + i));
+       mcWindow.appendChild(mainInv);
+
+
+       // Hotbar inside window
+       let hbRow = document.createElement('div');
+       hbRow.className = 'mc-row';
+       let hbSpacer = document.createElement('div');
+       hbSpacer.style.height = '10px';
+       hbRow.appendChild(hbSpacer);
+       mcWindow.appendChild(hbRow);
+
+
+       let hbGrid = document.createElement('div');
+       hbGrid.className = 'mc-row';
+       for(let i=0; i<9; i++) hbGrid.appendChild(createSlot('inv-' + i));
+       mcWindow.appendChild(hbGrid);
+
+
+       mcScreen.classList.add('open');
+       updateAllVisuals();
+   }
+
+
+   function closeUI() {
+       activeUI = 'none';
+       mcScreen.classList.remove('open');
+       // Drop dragging item back into world if UI closed while still holding one
+       if (draggingItem) {
+           dropDraggingItemToWorld({ clientX: 0, clientY: 0 });
+           dragGhostEl.style.display = 'none';
+       }
+   }
+
+
+   function getSlotData(id) {
+       if (id.startsWith('inv-')) return inventory[parseInt(id.slice(4))];
+       if (id.startsWith('armor-')) return armor[parseInt(id.slice(6))];
+       if (id.startsWith('craft2-')) return craft2[parseInt(id.slice(7))];
+       if (id.startsWith('craft3-')) return craft3[parseInt(id.slice(7))];
+       if (id === 'out2-0') return out2;
+       if (id === 'out3-0') return out3;
+       return null;
+   }
+
+
+   function setSlotData(id, val) {
+       if (id.startsWith('inv-')) inventory[parseInt(id.slice(4))] = val;
+       else if (id.startsWith('armor-')) armor[parseInt(id.slice(6))] = val;
+       else if (id.startsWith('craft2-')) craft2[parseInt(id.slice(7))] = val;
+       else if (id.startsWith('craft3-')) craft3[parseInt(id.slice(7))] = val;
+       else if (id === 'out2-0') out2 = val;
+       else if (id === 'out3-0') out3 = val;
+   }
+
+
+   function getOreColor(type) {
+       if (type === 3) return '#3b82f6'; 
+       if (type === 4) return '#22c55e'; 
+       if (type === 5) return '#ef4444'; 
+       if (type === 6) return '#a855f7'; 
+       if (type === 7) return '#8B4513';
+       if (type === 8) return '#1a1a1a';  // coal - black
+       if (type === 9) return '#d1d5db';  // iron - grey-white
+       if (type === 10) return '#fbbf24'; 
+       if (type === 11) return '#94a3b8'; 
+       if (type === 12) return '#475569'; 
+       if (type === 13) return '#16a34a';
+       if (type === 14) return '#64748b'; // leggings
+       if (type === 15) return '#334155'; // boots
+       if (type === 16) return '#9ca3af'; // pickaxe
+       if (type === 17) return '#cbd5e1'; // sword
+       if (type === 18) return '#f59e0b'; // torch
+       if (type === 19) return '#57534e'; // furnace
+       if (type === 20) return '#8b5a2b'; // wood
+       return '#fff';
+   }
+
+
+   function updateAllVisuals() {
+       // Update hotbar (always visible)
+       for(let i=0; i<9; i++) {
+           let slot = hotbarDiv.children[i];
+           slot.innerHTML = '';
+           slot.classList.remove('selected');
+           if (i === selectedSlot) slot.classList.add('selected');
+           if (inventory[i]) renderItemInSlot(slot, inventory[i]);
+       }
+
+
+       // Update active window
+       if (activeUI !== 'none') {
+           let slots = mcWindow.querySelectorAll('.mc-slot');
+           slots.forEach(slot => {
+               let id = slot.dataset.id;
+               if (!id.startsWith('inv-')) { // Don't double process inv, but DO process hotbar copies inside window
+                   slot.innerHTML = '';
+                   let data = getSlotData(id);
+                   if (data) renderItemInSlot(slot, data);
+               } else {
+                   // For the hotbar inside the window, just clone logic
+                   slot.innerHTML = '';
+                   let idx = parseInt(id.slice(4));
+                   if (idx === selectedSlot) slot.classList.add('selected');
+                   if (inventory[idx]) renderItemInSlot(slot, inventory[idx]);
+               }
+           });
+       }
+   }
+
+
+   function renderItemInSlot(slot, item) {
+       let itemDiv = document.createElement('div');
+       itemDiv.className = 'mc-item';
+       itemDiv.style.background = getOreColor(item.type);
+       slot.appendChild(itemDiv);
+       
+       if (item.count > 1) {
+           let countDiv = document.createElement('div');
+           countDiv.className = 'mc-count';
+           countDiv.innerText = item.count;
+           slot.appendChild(countDiv);
+       }
+   }
+
+
+   function handleSlotClick(e) {
+       e.preventDefault();
+       e.stopPropagation();
+       let id = e.currentTarget.dataset.id;
+       let isRightClick = e.button === 2;
+       let isOutput = id.startsWith('out');
+       
+       let slotItem = getSlotData(id);
+
+
+       // Pick up output
+       if (isOutput && slotItem && !draggingItem) {
+           draggingItem = { type: slotItem.type, count: slotItem.count };
+           // Consume grid
+           if (id === 'out2-0') {
+               for(let i=0; i<4; i++) craft2[i] = null;
+               checkCrafting();
+           } else if (id === 'out3-0') {
+               for(let i=0; i<9; i++) craft3[i] = null;
+               checkCrafting();
+           }
+           updateDragGhost(e);
+           updateAllVisuals();
+           return;
+       }
+
+
+       // Splitting / Right-click placing
+       if (isRightClick) {
+           if (draggingItem) {
+               // Place 1
+               if (!slotItem) {
+                   setSlotData(id, { type: draggingItem.type, count: 1 });
+                   draggingItem.count--;
+                   if (draggingItem.count <= 0) draggingItem = null;
+               } else if (slotItem.type === draggingItem.type && slotItem.count < 64) {
+                   slotItem.count++;
+                   draggingItem.count--;
+                   if (draggingItem.count <= 0) draggingItem = null;
+               }
+           } else if (slotItem && slotItem.count > 1) {
+               // Pick up half
+               let half = Math.ceil(slotItem.count / 2);
+               draggingItem = { type: slotItem.type, count: half };
+               slotItem.count -= half;
+               if (slotItem.count <= 0) setSlotData(id, null);
+           }
+       } else {
+           // Left click: Swap or merge
+           if (draggingItem) {
+               if (!slotItem) {
+                   setSlotData(id, draggingItem);
+                   draggingItem = null;
+               } else if (slotItem.type === draggingItem.type) {
+                   let total = slotItem.count + draggingItem.count;
+                   if (total <= 64) {
+                       slotItem.count = total;
+                       draggingItem = null;
+                   } else {
+                       slotItem.count = 64;
+                       draggingItem.count = total - 64;
+                   }
+               } else {
+                   // Swap
+                   setSlotData(id, draggingItem);
+                   draggingItem = slotItem;
+               }
+           } else {
+               if (slotItem) {
+                   draggingItem = slotItem;
+                   setSlotData(id, null);
+               }
+           }
+       }
+       
+       updateDragGhost(e);
+       checkCrafting();
+       updateAllVisuals();
+   }
+
+
+   function updateDragGhost(e) {
+       if (draggingItem) {
+           dragGhostEl.style.display = 'flex';
+           dragGhostEl.style.left = (e.clientX - 12) + 'px';
+           dragGhostEl.style.top = (e.clientY - 12) + 'px';
+           dragGhostEl.innerHTML = '';
+           let itemDiv = document.createElement('div');
+           itemDiv.className = 'mc-item';
+           itemDiv.style.background = getOreColor(draggingItem.type);
+           dragGhostEl.appendChild(itemDiv);
+           if (draggingItem.count > 1) {
+               let countDiv = document.createElement('div');
+               countDiv.className = 'mc-count';
+               countDiv.innerText = draggingItem.count;
+               dragGhostEl.appendChild(countDiv);
+           }
+       } else {
+           dragGhostEl.style.display = 'none';
+       }
+   }
+
+
+   window.addEventListener('mousemove', (e) => { if (draggingItem) updateDragGhost(e); });
+
+
+   function dropDraggingItemToWorld(e) {
+       let pwx = camera.x + canvas.width / 2;
+       let pwy = camera.y + canvas.height / 2;
+       droppedItems.push({ x: pwx, y: pwy, vx: 0, vy: 0, type: draggingItem.type, life: 1, count: draggingItem.count });
+       draggingItem = null;
+       updateDragGhost(e);
+       updateAllVisuals();
+   }
+
+
+   // Minecraft-style: only drop the held item into the world when you click
+   // OUTSIDE the inventory panel (on the dark backdrop or the game itself),
+   // not on every mouse release - a normal click already fires mousedown then
+   // mouseup, so a release-based listener would instantly un-pick-up anything
+   // you just grabbed.
+   mcScreen.addEventListener('mousedown', (e) => {
+       if (e.target === mcScreen && draggingItem) dropDraggingItemToWorld(e);
+   });
+
+
+   window.addEventListener('wheel', (e) => {
+       if (activeUI !== 'none') return; 
+       if (e.deltaY > 0) selectedSlot = (selectedSlot + 1) % 9;
+       else selectedSlot = (selectedSlot - 1 + 9) % 9;
+       updateAllVisuals();
+   });
+
+
+   function checkCrafting() {
+       let match2 = null, match3 = null;
+       for(let r of recipes) {
+           if (r.size === 2 && !match2) {
+               let valid = true;
+               for(let i=0; i<4; i++) {
+                   let gType = craft2[i] ? craft2[i].type : 0;
+                   if (gType !== r.pattern[i]) { valid = false; break; }
+               }
+               if (valid) match2 = r.result;
+           } else if (r.size === 3 && !match3) {
+               let valid = true;
+               for(let i=0; i<9; i++) {
+                   let gType = craft3[i] ? craft3[i].type : 0;
+                   if (gType !== r.pattern[i]) { valid = false; break; }
+               }
+               if (valid) match3 = r.result;
+           }
+       }
+       out2 = match2 ? { type: match2, count: 1 } : null;
+       out3 = match3 ? { type: match3, count: 1 } : null;
+   }
+
+
+   function addItemToInventory(type) {
+       // Try stack first
+       for(let i = 0; i < 36; i++) {
+           if (inventory[i] && inventory[i].type === type && inventory[i].count < 64) {
+               inventory[i].count++;
+               updateAllVisuals();
+               return true;
+           }
+       }
+       // Find empty
+       for(let i = 0; i < 36; i++) {
+           if (!inventory[i]) {
+               inventory[i] = { type: type, count: 1 };
+               updateAllVisuals();
+               return true;
+           }
+       }
+       return false; 
+   }
+
+
+   function spawnDroppedItem(tx, ty, type) {
+       // Check if we can stack in inventory first (auto pickup)
+       droppedItems.push({
+           x: tx * TILE_SIZE + TILE_SIZE / 2,
+           y: ty * TILE_SIZE + TILE_SIZE / 2,
+           vx: (Math.random() - 0.5) * 4, 
+           vy: (Math.random() - 0.5) * 4,
+           type: type,
+           count: 1,
+           life: 0 
+       });
+   }
+
+
+   // --- CAVE GENERATION ---
+   function initMap() {
+       for (let x = 0; x < MAP_W; x++) {
+           map[x] = [];
+           for (let y = 0; y < MAP_H; y++) {
+               if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
+                   map[x][y] = 0;
+               } else if (Math.random() < INITIAL_WALL_PERCENT) {
+                   // This tile is a wall - roll for a single-tile ore vein.
+                   // 8 = Coal (black), 9 = Iron (grey-white)
+                   let oreRoll = Math.random();
+                   if (oreRoll < IRON_SPAWN_CHANCE) map[x][y] = 9;
+                   else if (oreRoll < IRON_SPAWN_CHANCE + COAL_SPAWN_CHANCE) map[x][y] = 8;
+                   else map[x][y] = 0;                      // plain wall
+               } else {
+                   map[x][y] = 1;
+               }
+           }
+       }
+   }
+
+
+   function countHoleNeighbors(x, y) {
+       let count = 0;
+       for (let i = -1; i <= 1; i++) { for (let j = -1; j <= 1; j++) { if (i === 0 && j === 0) continue; let nx = x + i; let ny = y + j; if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue; if (map[nx][ny] === 1 || map[nx][ny] === 2) count++; } }
+       return count;
+   }
+
+
+   function runCellularAutomata() {
+       for (let i = 0; i < CA_SIMULATION_STEPS; i++) {
+           let newMap = [];
+           for (let x = 0; x < MAP_W; x++) { newMap[x] = []; for (let y = 0; y < MAP_H; y++) { let holeNeighbors = countHoleNeighbors(x, y); if (map[x][y] === 1 || map[x][y] === 2) { if (holeNeighbors < HOLE_SURVIVE_MIN_NEIGHBORS) newMap[x][y] = 0; else newMap[x][y] = map[x][y]; } else { if (holeNeighbors >= WALL_ERODE_MIN_NEIGHBORS) newMap[x][y] = 1; else newMap[x][y] = map[x][y]; /* preserve plain/coal/iron wall type */ } } }
+           map = newMap;
+       }
+   }
+
+
+   function bresenhamLine(x0, y0, x1, y1) {
+       let points = [];
+       let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+       let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+       let err = dx - dy;
+       let x = x0, y = y0;
+       while (true) {
+           points.push({x, y});
+           if (x === x1 && y === y1) break;
+           let e2 = 2 * err;
+           if (e2 > -dy) { err -= dy; x += sx; }
+           if (e2 < dx) { err += dx; y += sy; }
+       }
+       return points;
+   }
+
+
+   function connectNearbyWhiteTiles() {
+       let whiteTiles = [];
+       for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) { if (map[x][y] === 1) whiteTiles.push({x, y}); } }
+       if (whiteTiles.length < 2) return;
+       let iterations = Math.round((MAP_W * MAP_H) / WALL_CONNECT_DIVISOR);
+       for (let i = 0; i < iterations; i++) {
+           if (whiteTiles.length < 2) break;
+           let t1 = whiteTiles[Math.floor(Math.random() * whiteTiles.length)];
+           let candidates = [];
+           for (let dx = -WALL_CONNECT_MAX_DIST; dx <= WALL_CONNECT_MAX_DIST; dx++) {
+               for (let dy = -WALL_CONNECT_MAX_DIST; dy <= WALL_CONNECT_MAX_DIST; dy++) {
+                   if (dx === 0 && dy === 0) continue;
+                   if (Math.hypot(dx, dy) > WALL_CONNECT_MAX_DIST) continue;
+                   let nx = t1.x + dx, ny = t1.y + dy;
+                   if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+                   if (map[nx][ny] !== 1) continue;
+                   let line = bresenhamLine(t1.x, t1.y, nx, ny);
+                   let hasWallBetween = line.some(p => map[p.x][p.y] === 0);
+                   if (hasWallBetween) candidates.push({x: nx, y: ny, line});
+               }
+           }
+           if (candidates.length === 0) continue;
+           let chosen = candidates[Math.floor(Math.random() * candidates.length)];
+           chosen.line.forEach(p => {
+               if (map[p.x][p.y] === 0) {
+                   map[p.x][p.y] = 1;
+                   whiteTiles.push({x: p.x, y: p.y});
+               }
+           });
+       }
+   }
+
+
+   function carveSpawnRoom() {
+       let cx = Math.floor(MAP_W / 2); let cy = Math.floor(MAP_H / 2);
+       for (let x = cx - SPAWN_ROOM_RADIUS; x <= cx + SPAWN_ROOM_RADIUS; x++) { for (let y = cy - SPAWN_ROOM_RADIUS; y <= cy + SPAWN_ROOM_RADIUS; y++) { if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) map[x][y] = 1; } }
+       
+       let tableX = cx - 4; let tableY = cy;
+       if (tableX >= 0 && tableX < MAP_W && tableY >= 0 && tableY < MAP_H) {
+           map[tableX][tableY] = 7;
+           craftingTablePos = { x: tableX, y: tableY };
+       }
+
+
+       camera.x = (cx * TILE_SIZE) - (canvas.width / 2) + (TILE_SIZE / 2);
+       camera.y = (cy * TILE_SIZE) - (canvas.height / 2) + (TILE_SIZE / 2);
+   }
+
+
+   function generateLakes() {
+       let numberOfLakes = Math.round((MAP_W * MAP_H) / LAKE_DENSITY_DIVISOR);
+       for (let i = 0; i < numberOfLakes; i++) {
+           let targetSize = Math.floor(Math.random() * (LAKE_MAX_SIZE - LAKE_MIN_SIZE + 1)) + LAKE_MIN_SIZE;
+           let shapeData = makeOrganicLakeShape(targetSize);
+           let gridSize = shapeData.length; let half = Math.floor(gridSize / 2);
+           if (MAP_W <= gridSize || MAP_H <= gridSize) continue;
+           let placed = false;
+           for (let attempt = 0; attempt < 20; attempt++) {
+               let centerX = Math.floor(Math.random() * (MAP_W - gridSize)) + half;
+               let centerY = Math.floor(Math.random() * (MAP_H - gridSize)) + half;
+               let shoreline = 0; let wallTouch = 0;
+               for (let lx = 0; lx < gridSize; lx++) { for (let ly = 0; ly < gridSize; ly++) {
+                   if (shapeData[lx][ly] === 1) {
+                       let gx = centerX + lx - half; let gy = centerY + ly - half;
+                       if (gx >= 0 && gx < MAP_W && gy >= 0 && gy < MAP_H) {
+                           if (map[gx][gy] === 1) shoreline++; else if (map[gx][gy] === 0 || map[gx][gy] === 8 || map[gx][gy] === 9) wallTouch++;
+                       }
+                   }
+               }}
+               if (shoreline >= LAKE_MIN_SHORELINE && wallTouch >= LAKE_MIN_WALL_TOUCH) {
+                   for (let lx = 0; lx < gridSize; lx++) { for (let ly = 0; ly < gridSize; ly++) {
+                       if (shapeData[lx][ly] === 1) {
+                           let gx = centerX + lx - half; let gy = centerY + ly - half;
+                           if (gx >= 0 && gx < MAP_W && gy >= 0 && gy < MAP_H) map[gx][gy] = 2;
+                       }
+                   }}
+                   placed = true; break;
+               }
+           }
+       }
+   }
+
+
+   function makeOrganicLakeShape(targetSize) {
+       let size = LAKE_GRID_SIZE; let grid = emptyLocalGrid(size);
+       let cx = size / 2, cy = size / 2; let maxDist = Math.hypot(cx, cy);
+       for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) {
+           let dist = Math.hypot(x - cx, y - cy);
+           let chance = 0.55 * (1 - dist / maxDist) + 0.05;
+           grid[x][y] = (Math.random() < chance) ? 1 : 0;
+       }}
+       for (let step = 0; step < 4; step++) {
+           let newGrid = emptyLocalGrid(size);
+           for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) {
+               let neighbors = countLocalNeighbors(grid, x, y);
+               if (grid[x][y] === 1) newGrid[x][y] = (neighbors < 3) ? 0 : 1;
+               else newGrid[x][y] = (neighbors > 5) ? 1 : 0;
+           }}
+           grid = newGrid;
+       }
+       grid = isolateMainBlobAndFill(grid); grid = resizeLocalShape(grid, targetSize);
+       return grid;
+   }
+
+
+   function countWaterNeighbors(x, y) {
+       let count = 0;
+       for (let i = -1; i <= 1; i++) { for (let j = -1; j <= 1; j++) {
+           if (i === 0 && j === 0) continue; let nx = x + i, ny = y + j;
+           if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+           if (map[nx][ny] === 2) count++;
+       }}
+       return count;
+   }
+
+
+   function engulfSurroundedWhiteTiles() {
+       let toConvert = [];
+       for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
+           if (map[x][y] === 1 && countWaterNeighbors(x, y) >= WATER_ENGULF_MIN_NEIGHBORS) toConvert.push({x, y});
+       }}
+       toConvert.forEach(p => map[p.x][p.y] = 2);
+   }
+
+
+   function smoothWaterEdges() {
+       for (let step = 0; step < WATER_SMOOTH_STEPS; step++) {
+           let changes = [];
+           for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
+               if (map[x][y] === 0 || map[x][y] === 8 || map[x][y] === 9) continue; 
+               let waterNeighbors = countWaterNeighbors(x, y);
+               if (map[x][y] === 1 && waterNeighbors >= 5) changes.push({x, y, val: 2}); 
+               else if (map[x][y] === 2 && waterNeighbors <= 2) changes.push({x, y, val: 1}); 
+           }}
+           changes.forEach(c => map[c.x][c.y] = c.val);
+       }
+   }
+
+
+   function generateOre() {
+       let numberOfOre = Math.round((MAP_W * MAP_H) / ORE_DENSITY_DIVISOR);
+       let spawnCx = MAP_W / 2, spawnCy = MAP_H / 2;
+       for (let i = 0; i < numberOfOre; i++) {
+           let placed = false;
+           for (let attempt = 0; attempt < 20; attempt++) {
+               let x = Math.floor(Math.random() * (MAP_W - 3)) + 1; let y = Math.floor(Math.random() * (MAP_H - 3)) + 1;
+               let whiteTouch = 0;
+               for (let px = x - 1; px <= x + 2; px++) { for (let py = y - 1; py <= y + 2; py++) {
+                   if (px >= x && px <= x + 1 && py >= y && py <= y + 1) continue;
+                   if (px < 0 || px >= MAP_W || py < 0 || py >= MAP_H) continue;
+                   if (map[px][py] === 1) whiteTouch++;
+               }}
+               if (whiteTouch >= ORE_MIN_WHITE_TOUCH) {
+                   let dist = Math.hypot((x + 0.5) - spawnCx, (y + 0.5) - spawnCy);
+                   let oreValue;
+                   if (dist <= 100) oreValue = 3; else if (dist <= 200) oreValue = 4; else if (dist <= 300) oreValue = 5; else oreValue = 6;                   
+                   map[x][y] = oreValue; map[x + 1][y] = oreValue;
+                   map[x][y + 1] = oreValue; map[x + 1][y + 1] = oreValue;
+                   placed = true; break;
+               }
+           }
+       }
+   }
+
+
+   // ==========================================
+   // ⛏️ ORE VEIN CLUSTERING (Core Keeper style)
+   // Runs after CA smoothing. Each coal/iron tile has a chance to spread
+   // into an adjacent plain wall tile, building up small clumps instead of
+   // isolated single tiles - and sometimes the spread tile flips to the
+   // OTHER ore type, so coal and iron occasionally end up in the same vein.
+   // ==========================================
+   function clusterOreVeins() {
+       for (let pass = 0; pass < ORE_VEIN_PASSES; pass++) {
+           let existingOre = [];
+           for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
+               if (map[x][y] === 8 || map[x][y] === 9) existingOre.push({x, y, type: map[x][y]});
+           }}
+
+
+           existingOre.forEach(o => {
+               if (Math.random() >= ORE_VEIN_SPREAD_CHANCE) return;
+
+
+               let dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
+               dirs.sort(() => Math.random() - 0.5);
+
+
+               for (let d = 0; d < dirs.length; d++) {
+                   let nx = o.x + dirs[d][0], ny = o.y + dirs[d][1];
+                   if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
+                   if (map[nx][ny] !== 0) continue; // only spread into plain wall
+                   let newType = (Math.random() < ORE_VEIN_MIX_CHANCE) ? (o.type === 8 ? 9 : 8) : o.type;
+                   map[nx][ny] = newType;
+                   break;
+               }
+           });
+       }
+   }
+
+
+   // ==========================================
+   // 🌲 WOOD (Core Keeper style: small clusters of trees on open floor)
+   // ==========================================
+   function generateWood() {
+       let numberOfClusters = Math.round((MAP_W * MAP_H) / WOOD_DENSITY_DIVISOR);
+       placeWoodClusters(numberOfClusters, null); // uniform, across the whole map
+   }
+
+
+   function placeWoodClusters(count, centerBias) {
+       for (let i = 0; i < count; i++) {
+           let sx, sy, found = false;
+           for (let attempt = 0; attempt < 20 && !found; attempt++) {
+               if (centerBias) {
+                   let angle = Math.random() * Math.PI * 2;
+                   let r = centerBias.radius * Math.random();
+                   sx = Math.floor(centerBias.x + Math.cos(angle) * r);
+                   sy = Math.floor(centerBias.y + Math.sin(angle) * r);
+               } else {
+                   sx = Math.floor(Math.random() * MAP_W);
+                   sy = Math.floor(Math.random() * MAP_H);
+               }
+               if (sx >= 0 && sx < MAP_W && sy >= 0 && sy < MAP_H && map[sx][sy] === 1) found = true;
+           }
+           if (!found) continue;
+
+
+           map[sx][sy] = 20;
+           let placed = [{x: sx, y: sy}];
+           let clusterSize = WOOD_CLUSTER_MIN + Math.floor(Math.random() * (WOOD_CLUSTER_MAX - WOOD_CLUSTER_MIN + 1));
+
+
+           for (let c = 1; c < clusterSize; c++) {
+               let base = placed[Math.floor(Math.random() * placed.length)];
+               let nx = base.x + Math.floor(Math.random() * 3) - 1;
+               let ny = base.y + Math.floor(Math.random() * 3) - 1;
+               if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && map[nx][ny] === 1) {
+                   map[nx][ny] = 20;
+                   placed.push({x: nx, y: ny});
+               }
+           }
+       }
+   }
+
+
+   function emptyLocalGrid(size) { return Array(size).fill(0).map(() => Array(size).fill(0)); }
+   function countLocalNeighbors(grid, x, y) { let size = grid.length; let count = 0; for (let dx = -1; dx <= 1; dx++) { for (let dy = -1; dy <= 1; dy++) { if (dx === 0 && dy === 0) continue; let nx = x + dx; let ny = y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1) count++; } } return count; }
+   function floodFillLocal(grid, startX, startY) { let size = grid.length; if (grid[startX][startY] !== 1) return []; let visited = Array(size).fill(0).map(() => Array(size).fill(false)); let queue = [{x: startX, y: startY}]; visited[startX][startY] = true; let result = []; while (queue.length > 0) { let curr = queue.shift(); result.push(curr); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (dx === 0 && dy === 0) continue; let nx = curr.x + dx; let ny = curr.y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1 && !visited[nx][ny]) { visited[nx][ny] = true; queue.push({x: nx, y: ny}); } } } return result; }
+   function getBoundingBox(tiles, size) { let minX = size, maxX = 0, minY = size, maxY = 0; tiles.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }); return {minX, maxX, minY, maxY}; }
+   function countLocalOnes(grid) { let size = grid.length; let c = 0; for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) if (grid[x][y] === 1) c++; return c; }
+   function getLocalBorder(grid) { let size = grid.length; let border = []; for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) { if (grid[x][y] === 0) { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { let nx = x + dx; let ny = y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1) { border.push({x, y}); break; } } } } } return border; }
+   function isolateMainBlobAndFill(grid) { let size = grid.length; let cx = size / 2, cy = size / 2; let best = null, bestDist = Infinity; for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) { if (grid[x][y] === 1) { let d = Math.hypot(x - cx, y - cy); if (d < bestDist) { bestDist = d; best = {x, y}; } } } } if (!best) return grid; let mainBlob = floodFillLocal(grid, best.x, best.y); let cleaned = emptyLocalGrid(size); mainBlob.forEach(p => cleaned[p.x][p.y] = 1); let boundingBox = getBoundingBox(mainBlob, size); for (let x = boundingBox.minX; x <= boundingBox.maxX; x++) { for (let y = boundingBox.minY; y <= boundingBox.maxY; y++) { if (cleaned[x][y] === 0) { let surrounded = countLocalNeighbors(cleaned, x, y); if (surrounded >= 4) cleaned[x][y] = 1; } } } return cleaned; }
+   function resizeLocalShape(grid, targetSize) { let currentSize = countLocalOnes(grid); if (currentSize === 0) return grid; if (currentSize < targetSize) { while (currentSize < targetSize) { let borderTiles = getLocalBorder(grid); if (borderTiles.length === 0) break; let pick = borderTiles[Math.floor(Math.random() * borderTiles.length)]; grid[pick.x][pick.y] = 1; currentSize++; } } else if (currentSize > targetSize) { let size = grid.length; let cx = size / 2, cy = size / 2; let allOnes = []; for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) if (grid[x][y] === 1) allOnes.push({x, y}); allOnes.sort((a, b) => Math.hypot(b.x - cx, b.y - cy) - Math.hypot(a.x - cx, a.y - cy)); while (currentSize > targetSize && allOnes.length > 0) { let remove = allOnes.shift(); let safe = true; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { let nx = remove.x + dx, ny = remove.y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1 && countLocalNeighbors(grid, nx, ny) <= 3) safe = false; } if (safe) { grid[remove.x][remove.y] = 0; currentSize--; } } } return grid; }
+
+
+   function tileAtWorld(wx, wy) {
+       let tx = Math.floor(wx / TILE_SIZE); let ty = Math.floor(wy / TILE_SIZE);
+       if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return 0;
+       return map[tx][ty];
+   }
+
+
+   function update() {
+       if (generating) return;
+
+
+       if (keys['e'] && !ePrevDown) { 
+           if (activeUI === 'inventory') closeUI();
+           else if (activeUI === 'none') openUI('inventory');
+       }
+       ePrevDown = keys['e'];
+
+
+       if (keys['v'] && !vPrevDown) { mode = (mode === 'ghost') ? 'human' : 'ghost'; }
+       vPrevDown = keys['v'];
+
+
+       let speed = CAMERA_SPEED;
+       if (keys['shift']) speed = CAMERA_SPRINT_SPEED;
+
+
+       let dx = 0, dy = 0;
+       if (keys['w'] || keys['arrowup']) dy -= speed;
+       if (keys['s'] || keys['arrowdown']) dy += speed;
+       if (keys['a'] || keys['arrowleft']) dx -= speed;
+       if (keys['d'] || keys['arrowright']) dx += speed;
+
+
+       let playerWorldX = camera.x + canvas.width / 2;
+       let playerWorldY = camera.y + canvas.height / 2;
+
+
+       if (mode === 'ghost') {
+           camera.x += dx; camera.y += dy;
+       } else {
+           if (dx !== 0 || dy !== 0) {
+               let tile = tileAtWorld(playerWorldX + dx, playerWorldY + dy);
+               let actualDx = dx, actualDy = dy;
+
+
+               if (tile === 2) {
+                   actualDx = dx * WATER_SPEED_MULT; actualDy = dy * WATER_SPEED_MULT;
+               } else if (tile === 0 || tile >= 3) {
+                   actualDx = dx * MINING_SPEED_MULT; actualDy = dy * MINING_SPEED_MULT;
+                   let tx = Math.floor((playerWorldX + dx) / TILE_SIZE), ty = Math.floor((playerWorldY + dy) / TILE_SIZE);
+                   if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
+                       if (map[tx][ty] !== 7) {
+                           if ((tile >= 3 && tile <= 6) || tile === 8 || tile === 9 || tile === 20) spawnDroppedItem(tx, ty, tile);
+                           map[tx][ty] = 1;
+                       }
+                   }
+               }
+               camera.x += actualDx; camera.y += actualDy;
+           }
+       }
+
+
+       camera.x = Math.max(0, Math.min(camera.x, MAP_W * TILE_SIZE - canvas.width));
+       camera.y = Math.max(0, Math.min(camera.y, MAP_H * TILE_SIZE - canvas.height));
+       
+       let currentPlayerWorldX = camera.x + canvas.width / 2;
+       let currentPlayerWorldY = camera.y + canvas.height / 2;
+
+
+       let pTx = Math.floor(currentPlayerWorldX / TILE_SIZE);
+       let pTy = Math.floor(currentPlayerWorldY / TILE_SIZE);
+       let distToTable = Math.hypot(pTx - craftingTablePos.x, pTy - craftingTablePos.y);
+       nearTable = distToTable < 3;
+
+
+       if (keys['c'] && !cPrevDown) {
+           if (activeUI === 'crafting') {
+               // Always close, no matter where the player is standing now
+               closeUI();
+           } else if (nearTable) {
+               if (activeUI === 'inventory') closeUI(); // swap out inventory first
+               openUI('crafting');
+           }
+       }
+       cPrevDown = keys['c'];
+       
+       for (let i = droppedItems.length - 1; i >= 0; i--) {
+           let item = droppedItems[i];
+           item.x += item.vx; item.y += item.vy;
+           item.vx *= 0.9; item.vy *= 0.9;
+           item.life = Math.min(item.life + 0.1, 1); 
+           
+           let dist = Math.hypot(item.x - currentPlayerWorldX, item.y - currentPlayerWorldY);
+           if (dist < 30) { 
+               if (addItemToInventory(item.type)) droppedItems.splice(i, 1); 
+           }
+       }
+
+
+       let posText = `X: ${Math.floor(camera.x/TILE_SIZE)} | Y: ${Math.floor(camera.y/TILE_SIZE)} | Mode: ${mode}`;
+       if (nearTable) posText += ` | Press C to Craft`;
+       document.getElementById('pos').innerText = posText;
+   }
+
+
+   function draw() {
+       if (generating) return;
+       ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+
+       let startX = Math.floor(camera.x / TILE_SIZE); let startY = Math.floor(camera.y / TILE_SIZE);
+       let endX = Math.ceil((camera.x + canvas.width) / TILE_SIZE); let endY = Math.ceil((camera.y + canvas.height) / TILE_SIZE);
+       startX = Math.max(0, startX); startY = Math.max(0, startY); endX = Math.min(MAP_W, endX); endY = Math.min(MAP_H, endY);
+
+
+       for (let x = startX; x < endX; x++) {
+           for (let y = startY; y < endY; y++) {
+               if (map[x][y] === 1) {
+                   ctx.fillStyle = '#ffffff'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+               } else if (map[x][y] === 2) {
+                   ctx.fillStyle = '#00bfff'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+               } else if (map[x][y] === 0) {
+                   ctx.fillStyle = '#4b3621'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+               } else if (map[x][y] === 8 || map[x][y] === 9 || map[x][y] === 20) {
+                   ctx.fillStyle = getOreColor(map[x][y]); ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+               } else if (map[x][y] >= 3 && map[x][y] <= 6) {
+                   ctx.fillStyle = getOreColor(map[x][y]); ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+               } else if (map[x][y] === 7) {
+                   ctx.fillStyle = '#8B4513'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+                   ctx.fillStyle = '#D2691E'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, 8);
+                   ctx.fillStyle = '#A0522D'; ctx.fillRect(x * TILE_SIZE - camera.x + 8, y * TILE_SIZE - camera.y + 8, 16, 16);
+               }
+           }
+       }
+
+
+       droppedItems.forEach(item => {
+           let screenX = item.x - camera.x; let screenY = item.y - camera.y;
+           if (screenX < -20 || screenX > canvas.width + 20 || screenY < -20 || screenY > canvas.height + 20) return;
+           let size = 12 * item.life; 
+           ctx.save(); ctx.translate(screenX, screenY); ctx.rotate(Math.PI / 4); 
+           ctx.fillStyle = getOreColor(item.type); ctx.fillRect(-size/2, -size/2, size, size);
+           ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(-size/2, -size/2, size, size);
+           ctx.restore();
+       });
+
+
+       let cx = canvas.width / 2; let cy = canvas.height / 2;
+       ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+   }
+
+
+   function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+
+
+   setTimeout(() => {
+       initMap(); runCellularAutomata(); clusterOreVeins(); connectNearbyWhiteTiles(); carveSpawnRoom();
+       generateLakes(); engulfSurroundedWhiteTiles(); smoothWaterEdges(); generateOre(); generateWood();
+      
+       generating = false;
+       document.getElementById('loading').style.display = 'none';
+       updateAllVisuals(); 
+       gameLoop();
+   }, 50);
+
+
+</script>
+</body>
+</html>
