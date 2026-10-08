@@ -1,1178 +1,1012 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-   <meta charset="UTF-8">
-   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-   <title>Cave Generation - Organic Lakes</title>
-   <style>
-       body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; user-select: none; }
-       canvas { display: block; }
-       
-       #ui { position: absolute; top: 20px; left: 20px; color: #fff; pointer-events: none; text-shadow: 1px 1px 2px black; z-index: 10; }
-       #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 24px; font-family: sans-serif; }
-       
-       /* Minecraft UI Container */
-       #mc-screen {
-           position: absolute;
-           top: 0; left: 0; width: 100%; height: 100%;
-           display: none;
-           justify-content: center;
-           align-items: center;
-           background: rgba(0,0,0,0.4);
-           z-index: 20;
-       }
-       #mc-screen.open { display: flex; }
-
-
-       /* Main Window (Inventory / Crafting Table) */
-       .mc-window {
-           background: #c6c6c6;
-           padding: 10px;
-           border: 4px solid #555;
-           box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
-           display: flex;
-           flex-direction: column;
-           gap: 10px;
-           image-rendering: pixelated;
-       }
-
-
-       /* Generic Slot */
-       .mc-slot {
-           width: 40px; height: 40px;
-           background: #8b8b8b;
-           border-top: 3px solid #373737;
-           border-left: 3px solid #373737;
-           border-right: 3px solid #ffffff;
-           border-bottom: 3px solid #ffffff;
-           box-shadow: inset 0 0 0 1px #000;
-           margin: 1px;
-           position: relative;
-           display: flex; align-items: center; justify-content: center;
-       }
-       .mc-slot.out-slot { background: #9b9b9b; }
-       
-       .mc-item {
-           width: 24px; height: 24px;
-           transform: rotate(45deg);
-           border: 1px solid rgba(0,0,0,0.4);
-           pointer-events: none;
-       }
-       .mc-count {
-           position: absolute;
-           bottom: -4px; right: 0px;
-           font-size: 16px; font-weight: bold;
-           color: #fff;
-           text-shadow: 2px 2px 0 #000;
-           pointer-events: none;
-       }
-
-
-       /* Layout Helpers */
-       .mc-row { display: flex; gap: 4px; justify-content: center; align-items: center; }
-       .mc-col { display: flex; flex-direction: column; gap: 4px; justify-content: center; }
-       .mc-spacer { width: 20px; }
-       .mc-arrow { font-size: 24px; color: #555; font-weight: bold; }
-
-
-       .mc-grid-2x2 { display: grid; grid-template-columns: repeat(2, 40px); grid-template-rows: repeat(2, 40px); gap: 2px; }
-       .mc-grid-3x3 { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(3, 40px); gap: 2px; }
-       .mc-main-inv { display: grid; grid-template-columns: repeat(9, 40px); grid-template-rows: repeat(3, 40px); gap: 2px; }
-       
-       /* Always-on Hotbar */
-       #mc-hotbar {
-           position: absolute;
-           bottom: 20px; left: 50%;
-           transform: translateX(-50%);
-           display: grid;
-           grid-template-columns: repeat(9, 40px);
-           grid-template-rows: repeat(1, 40px);
-           gap: 2px;
-           background: rgba(198, 198, 198, 0.9);
-           padding: 10px;
-           border: 4px solid #555;
-           box-shadow: 4px 4px 0px rgba(0,0,0,0.5);
-           z-index: 10;
-       }
-       .mc-slot.selected {
-           border-color: #fff;
-           box-shadow: 0 0 0 2px #fff, inset 0 0 0 1px #000;
-           outline: 2px solid #fff;
-       }
-
-
-       /* Drag Ghost */
-       #drag-ghost {
-           position: absolute;
-           pointer-events: none;
-           z-index: 1000;
-           display: none;
-       }
-       #drag-ghost .mc-item { transform: rotate(45deg) scale(1.1); }
-   </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Minecraft Crafting Table</title>
+<style>
+body{margin:0;overflow:hidden;background:#000;font-family:'Courier New',monospace;user-select:none}
+canvas{display:block}
+#ui{position:absolute;top:20px;left:20px;color:#fff;pointer-events:none;text-shadow:1px 1px 2px #000;z-index:10;font-size:11px;line-height:1.6}
+#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:24px}
+#mc-screen{position:absolute;top:0;left:0;width:100%;height:100%;display:none;justify-content:center;align-items:center;background:rgba(0,0,0,0.55);z-index:20}
+#mc-screen.open{display:flex}
+.mc-window{background:#c6c6c6;padding:12px;border:4px solid #555;box-shadow:4px 4px 0 rgba(0,0,0,0.5);display:flex;flex-direction:column;gap:8px}
+.mc-slot{width:40px;height:40px;background:#8b8b8b;border-top:3px solid #373737;border-left:3px solid #373737;border-right:3px solid #fff;border-bottom:3px solid #fff;box-shadow:inset 0 0 0 1px #000;margin:1px;position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.mc-slot.out-slot{background:#9b9b9b}
+.mc-slot:hover{filter:brightness(1.15)}
+.mc-item{width:24px;height:24px;transform:rotate(45deg);border:1px solid rgba(0,0,0,0.4);pointer-events:none}
+.mc-count{position:absolute;bottom:-4px;right:0;font-size:16px;font-weight:bold;color:#fff;text-shadow:2px 2px 0 #000;pointer-events:none}
+.mc-tag{position:absolute;top:-2px;left:1px;font-size:7px;color:#fff;text-shadow:1px 1px 0 #000;pointer-events:none;transform:none;font-weight:bold}
+.mc-row{display:flex;gap:4px;justify-content:center;align-items:center}
+.mc-col{display:flex;flex-direction:column;gap:4px;justify-content:center}
+.mc-spacer{width:20px}
+.mc-grid-2x2{display:grid;grid-template-columns:repeat(2,40px);grid-template-rows:repeat(2,40px);gap:2px}
+.mc-grid-3x3{display:grid;grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px);gap:2px}
+.mc-main-inv{display:grid;grid-template-columns:repeat(9,40px);grid-template-rows:repeat(3,40px);gap:2px}
+#mc-hotbar{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:grid;grid-template-columns:repeat(9,40px);grid-template-rows:40px;gap:2px;background:rgba(198,198,198,0.9);padding:10px;border:4px solid #555;box-shadow:4px 4px 0 rgba(0,0,0,0.5);z-index:10}
+.mc-slot.selected{border-color:#fff;box-shadow:0 0 0 2px #fff,inset 0 0 0 1px #000;outline:2px solid #fff}
+#drag-ghost{position:absolute;pointer-events:none;z-index:1000;display:none}
+#tooltip{position:absolute;pointer-events:none;z-index:2000;display:none;background:#100010;border:2px solid #500050;color:#fff;padding:4px 8px;font-size:13px;white-space:nowrap}
+.mc-help{color:#404040;font-size:10px;text-align:center;padding:4px;border-top:2px solid #999;margin-top:4px;line-height:1.4}
+</style>
 </head>
 <body>
-
-
-<div id="loading">Generating...</div>
+<div id="loading">Generating World...</div>
 <div id="ui">
-   <div>WASD: Move | V: Ghost/Human | E: Inventory | C: Craft (Near Table) | L/R Click: Move/Split</div>
-   <div id="pos"></div>
+<div>WASD:Move V:Ghost E:Inv C:Craft | Shift+Click:QuickMove | RightDrag:Spread1 | DblClick:CollectAll | 1-9:Hotbar | Q:Drop</div>
+<div id="pos"></div>
 </div>
-
-
 <div id="mc-hotbar"></div>
 <div id="mc-screen"><div id="mc-window"></div></div>
 <div id="drag-ghost"></div>
-
-
+<div id="tooltip"></div>
 <canvas id="gameCanvas"></canvas>
-
-
 <script>
-   // ==========================================
-   // 🛠️ TWEAKABLE PARAMETERS
-   // ==========================================
-   const MAP_W = 800;          
-   const MAP_H = 800;          
-   const TILE_SIZE = 32;        
-
-
-   const CAMERA_SPEED = 6;     
-   const CAMERA_SPRINT_SPEED = 14;
-   const WATER_SPEED_MULT = 0.2;    
-   const MINING_SPEED_MULT = 1;  
-
-
-   const INITIAL_WALL_PERCENT = 0.70;
-   const CA_SIMULATION_STEPS = 9;    
-   const HOLE_SURVIVE_MIN_NEIGHBORS = 3;
-   const WALL_ERODE_MIN_NEIGHBORS = 4;  
-
-
-   const SPAWN_ROOM_RADIUS = 7;
-   const WALL_CONNECT_DIVISOR = 2;     
-   const WALL_CONNECT_MAX_DIST = 3;    
-
-
-   const LAKE_DENSITY_DIVISOR = 10000;  
-   const LAKE_MIN_SIZE = 150;           
-   const LAKE_MAX_SIZE = 200;         
-   const LAKE_MIN_SHORELINE = 8;        
-   const LAKE_MIN_WALL_TOUCH = 16;      
-   const LAKE_GRID_SIZE = 24;           
-
-
-   const WATER_ENGULF_MIN_NEIGHBORS = 8;  
-   const WATER_SMOOTH_STEPS = 2;          
-
-
-   const ORE_DENSITY_DIVISOR = 5000;   
-   const ORE_MIN_WHITE_TOUCH = 6;      
-
-
-   // -- Single-tile ore spawn chance, rolled per wall tile in initMap() --
-   const IRON_SPAWN_CHANCE = 0.002;   // 0.2%
-   const COAL_SPAWN_CHANCE = 0.005;    // 0.5%
-
-
-   // -- Coal/Iron Vein Clustering (Core Keeper style: ore clumps together,
-   // and coal/iron sometimes bleed into the same vein) --
-   const ORE_VEIN_SPREAD_CHANCE = 0.75;  // chance a coal/iron tile spreads into one adjacent wall
-   const ORE_VEIN_MIX_CHANCE = 0.;     // chance that spread tile becomes the OTHER ore type
-   const ORE_VEIN_PASSES = 4;            // how many spread passes to run (bigger clumps)
-
-
-   // -- Wood (Core Keeper style: small tree clusters scattered on open floor) --
-   const WOOD_DENSITY_DIVISOR = 40;      // numberOfClusters = (MAP_W * MAP_H) / this
-   const WOOD_CLUSTER_MIN = 2;
-   const WOOD_CLUSTER_MAX = 8;
-
-
-   // ==========================================
-   // 🏃 ENGINE LOGIC
-   // ==========================================
-   const canvas = document.getElementById('gameCanvas');
-   const ctx = canvas.getContext('2d');
-
-
-   let map = [];
-   let generating = true;
-
-
-   const camera = { x: 0, y: 0 };
-   const keys = {};
-   let mode = 'ghost'; 
-   
-   let ePrevDown = false;
-   let vPrevDown = false;
-   let cPrevDown = false;
-
-
-   // --- Inventory State (Minecraft sizing: 9 hotbar + 27 main = 36) ---
-   let inventory = new Array(36).fill(null); 
-   let armor = new Array(4).fill(null);
-   let craft2 = new Array(4).fill(null);
-   let craft3 = new Array(9).fill(null);
-   let out2 = null;
-   let out3 = null;
-   
-   let selectedSlot = 0; 
-   let activeUI = 'none'; // 'none', 'inventory', 'crafting'
-   let craftingTablePos = { x: 0, y: 0 };
-   let nearTable = false;
-   let droppedItems = []; // <-- was missing entirely, caused a ReferenceError on the first frame and silently crashed the whole render loop (that's why the screen was just black)
-
-
-   // --- Recipes ---
-   // 3=Blue, 4=Green, 5=Red, 6=Purple, 8=Coal, 9=Iron
-   // 10=Scanner, 11=Helmet, 12=Chestplate, 13=Block
-   // 14=Leggings, 15=Boots, 16=Pickaxe, 17=Sword, 18=Torch, 19=Furnace
-   const recipes = [
-       { size: 2, pattern: [4, 4, 4, 4], result: 13 }, // 2x2 Block
-       { size: 3, pattern: [4, 4, 4, 4, 0, 4, 0, 0, 0], result: 11 }, // Helmet
-       { size: 3, pattern: [5, 0, 5, 5, 6, 5, 5, 5, 5], result: 12 }, // Chestplate
-       { size: 3, pattern: [0, 3, 0, 3, 5, 3, 0, 3, 0], result: 10 }, // Scanner
-
-       // --- Armor (completes the set: Helmet, Chestplate, Leggings, Boots) ---
-       { size: 3, pattern: [9, 9, 9, 9, 0, 9, 9, 0, 9], result: 14 }, // Leggings
-       { size: 3, pattern: [9, 0, 9, 9, 0, 9, 0, 0, 0], result: 15 }, // Boots
-
-       // --- Utilities ---
-       { size: 3, pattern: [9, 9, 9, 0, 8, 0, 0, 8, 0], result: 16 }, // Pickaxe (iron head, coal handle)
-       { size: 3, pattern: [0, 9, 0, 0, 9, 0, 0, 8, 0], result: 17 }, // Sword (iron blade, coal handle)
-       { size: 2, pattern: [8, 0, 0, 0], result: 18 },                // Torch (just coal, no table needed)
-       { size: 3, pattern: [3, 3, 3, 3, 0, 3, 3, 3, 3], result: 19 }  // Furnace (blue ore ring)
-   ];
-
-
-   // --- Dragging State ---
-   let draggingItem = null;
-   let dragGhost = null;
-
-
-   window.addEventListener('keydown', e => {
-       keys[e.key.toLowerCase()] = true;
-       if (e.key.toLowerCase() === 'e' || e.key.toLowerCase() === 'c') {
-           e.preventDefault(); // Prevent typing in background
-       }
-   });
-   window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
-   
-   // Prevent right-click context menu
-   window.addEventListener('contextmenu', e => e.preventDefault());
-   
-   function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-   window.addEventListener('resize', resize); resize();
-
-   // --- ZOOM LOCK ---
-   // Browser zoom-out makes innerWidth bigger (more tiles visible). We (a) block the zoom
-   // gestures/shortcuts and (b) compensate for any zoom that still happens (e.g. the browser
-   // menu) by scaling the canvas, so the visible world area never grows.
-   const BASE_DPR = window.devicePixelRatio || 1;
-   function zoomScale() { return BASE_DPR / (window.devicePixelRatio || 1); }  // 1 normally, >1 if zoomed out
-   function viewW() { return canvas.width / zoomScale(); }
-   function viewH() { return canvas.height / zoomScale(); }
-   window.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
-   window.addEventListener('keydown', e => {
-       if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '_', '0'].includes(e.key)) e.preventDefault();
-   });
-   ['gesturestart', 'gesturechange', 'gestureend'].forEach(ev =>
-       window.addEventListener(ev, e => e.preventDefault(), { passive: false }));
-
-
-
-   // --- INVENTORY UI SETUP ---
-   const mcScreen = document.getElementById('mc-screen');
-   const mcWindow = document.getElementById('mc-window');
-   const hotbarDiv = document.getElementById('mc-hotbar');
-   const dragGhostEl = document.getElementById('drag-ghost');
-
-
-   // Build static hotbar
-   for(let i = 0; i < 9; i++) {
-       let slot = createSlot('inv-' + i);
-       hotbarDiv.appendChild(slot);
-   }
-
-
-   function createSlot(id) {
-       let slot = document.createElement('div');
-       slot.className = 'mc-slot';
-       slot.dataset.id = id;
-       slot.addEventListener('mousedown', handleSlotClick);
-       return slot;
-   }
-
-
-   function openUI(type) {
-       activeUI = type;
-       mcWindow.innerHTML = '';
-       
-       let topRow = document.createElement('div');
-       topRow.className = 'mc-row';
-
-
-       if (type === 'inventory') {
-           // Left: Armor
-           let armorCol = document.createElement('div');
-           armorCol.className = 'mc-col';
-           for(let i=0; i<4; i++) armorCol.appendChild(createSlot('armor-' + i));
-           
-           let spacer1 = document.createElement('div');
-           spacer1.className = 'mc-spacer';
-
-
-           // Middle: 2x2 Craft
-           let craft2Grid = document.createElement('div');
-           craft2Grid.className = 'mc-grid-2x2';
-           for(let i=0; i<4; i++) craft2Grid.appendChild(createSlot('craft2-' + i));
-
-
-           let spacer2 = document.createElement('div');
-           spacer2.className = 'mc-spacer';
-
-
-           // Right: Output
-           let outCol = document.createElement('div');
-           outCol.className = 'mc-col';
-           let outSlot = createSlot('out2-0');
-           outSlot.classList.add('out-slot');
-           outCol.appendChild(outSlot);
-
-
-           topRow.appendChild(armorCol);
-           topRow.appendChild(spacer1);
-           topRow.appendChild(craft2Grid);
-           topRow.appendChild(spacer2);
-           topRow.appendChild(outCol);
-       } else if (type === 'crafting') {
-           // Left: 3x3 Craft
-           let craft3Grid = document.createElement('div');
-           craft3Grid.className = 'mc-grid-3x3';
-           for(let i=0; i<9; i++) craft3Grid.appendChild(createSlot('craft3-' + i));
-
-
-           let spacer = document.createElement('div');
-           spacer.className = 'mc-spacer';
-
-
-           // Right: Output
-           let outCol = document.createElement('div');
-           outCol.className = 'mc-col';
-           let outSlot = createSlot('out3-0');
-           outSlot.classList.add('out-slot');
-           outCol.appendChild(outSlot);
-
-
-           topRow.appendChild(craft3Grid);
-           topRow.appendChild(spacer);
-           topRow.appendChild(outCol);
-       }
-
-
-       mcWindow.appendChild(topRow);
-
-
-       // Main Inventory
-       let mainInv = document.createElement('div');
-       mainInv.className = 'mc-main-inv';
-       for(let i=9; i<36; i++) mainInv.appendChild(createSlot('inv-' + i));
-       mcWindow.appendChild(mainInv);
-
-
-       // Hotbar inside window
-       let hbRow = document.createElement('div');
-       hbRow.className = 'mc-row';
-       let hbSpacer = document.createElement('div');
-       hbSpacer.style.height = '10px';
-       hbRow.appendChild(hbSpacer);
-       mcWindow.appendChild(hbRow);
-
-
-       let hbGrid = document.createElement('div');
-       hbGrid.className = 'mc-row';
-       for(let i=0; i<9; i++) hbGrid.appendChild(createSlot('inv-' + i));
-       mcWindow.appendChild(hbGrid);
-
-
-       mcScreen.classList.add('open');
-       updateAllVisuals();
-   }
-
-
-   function closeUI() {
-       activeUI = 'none';
-       mcScreen.classList.remove('open');
-       // Drop dragging item back into world if UI closed while still holding one
-       if (draggingItem) {
-           dropDraggingItemToWorld({ clientX: 0, clientY: 0 });
-           dragGhostEl.style.display = 'none';
-       }
-   }
-
-
-   function getSlotData(id) {
-       if (id.startsWith('inv-')) return inventory[parseInt(id.slice(4))];
-       if (id.startsWith('armor-')) return armor[parseInt(id.slice(6))];
-       if (id.startsWith('craft2-')) return craft2[parseInt(id.slice(7))];
-       if (id.startsWith('craft3-')) return craft3[parseInt(id.slice(7))];
-       if (id === 'out2-0') return out2;
-       if (id === 'out3-0') return out3;
-       return null;
-   }
-
-
-   function setSlotData(id, val) {
-       if (id.startsWith('inv-')) inventory[parseInt(id.slice(4))] = val;
-       else if (id.startsWith('armor-')) armor[parseInt(id.slice(6))] = val;
-       else if (id.startsWith('craft2-')) craft2[parseInt(id.slice(7))] = val;
-       else if (id.startsWith('craft3-')) craft3[parseInt(id.slice(7))] = val;
-       else if (id === 'out2-0') out2 = val;
-       else if (id === 'out3-0') out3 = val;
-   }
-
-
-   function getOreColor(type) {
-       if (type === 3) return '#3b82f6'; 
-       if (type === 4) return '#22c55e'; 
-       if (type === 5) return '#ef4444'; 
-       if (type === 6) return '#a855f7'; 
-       if (type === 7) return '#8B4513';
-       if (type === 8) return '#1a1a1a';  // coal - black
-       if (type === 9) return '#d1d5db';  // iron - grey-white
-       if (type === 10) return '#fbbf24'; 
-       if (type === 11) return '#94a3b8'; 
-       if (type === 12) return '#475569'; 
-       if (type === 13) return '#16a34a';
-       if (type === 14) return '#64748b'; // leggings
-       if (type === 15) return '#334155'; // boots
-       if (type === 16) return '#9ca3af'; // pickaxe
-       if (type === 17) return '#cbd5e1'; // sword
-       if (type === 18) return '#f59e0b'; // torch
-       if (type === 19) return '#57534e'; // furnace
-       if (type === 20) return '#8b5a2b'; // wood
-       return '#fff';
-   }
-
-
-   function updateAllVisuals() {
-       // Update hotbar (always visible)
-       for(let i=0; i<9; i++) {
-           let slot = hotbarDiv.children[i];
-           slot.innerHTML = '';
-           slot.classList.remove('selected');
-           if (i === selectedSlot) slot.classList.add('selected');
-           if (inventory[i]) renderItemInSlot(slot, inventory[i]);
-       }
-
-
-       // Update active window
-       if (activeUI !== 'none') {
-           let slots = mcWindow.querySelectorAll('.mc-slot');
-           slots.forEach(slot => {
-               let id = slot.dataset.id;
-               if (!id.startsWith('inv-')) { // Don't double process inv, but DO process hotbar copies inside window
-                   slot.innerHTML = '';
-                   let data = getSlotData(id);
-                   if (data) renderItemInSlot(slot, data);
-               } else {
-                   // For the hotbar inside the window, just clone logic
-                   slot.innerHTML = '';
-                   let idx = parseInt(id.slice(4));
-                   if (idx === selectedSlot) slot.classList.add('selected');
-                   if (inventory[idx]) renderItemInSlot(slot, inventory[idx]);
-               }
-           });
-       }
-   }
-
-
-   function renderItemInSlot(slot, item) {
-       let itemDiv = document.createElement('div');
-       itemDiv.className = 'mc-item';
-       itemDiv.style.background = getOreColor(item.type);
-       slot.appendChild(itemDiv);
-       
-       if (item.count > 1) {
-           let countDiv = document.createElement('div');
-           countDiv.className = 'mc-count';
-           countDiv.innerText = item.count;
-           slot.appendChild(countDiv);
-       }
-   }
-
-
-   function handleSlotClick(e) {
-       e.preventDefault();
-       e.stopPropagation();
-       let id = e.currentTarget.dataset.id;
-       let isRightClick = e.button === 2;
-       let isOutput = id.startsWith('out');
-       
-       let slotItem = getSlotData(id);
-
-
-       // Pick up output
-       if (isOutput && slotItem && !draggingItem) {
-           draggingItem = { type: slotItem.type, count: slotItem.count };
-           // Consume grid
-           if (id === 'out2-0') {
-               for(let i=0; i<4; i++) craft2[i] = null;
-               checkCrafting();
-           } else if (id === 'out3-0') {
-               for(let i=0; i<9; i++) craft3[i] = null;
-               checkCrafting();
-           }
-           updateDragGhost(e);
-           updateAllVisuals();
-           return;
-       }
-
-
-       // Splitting / Right-click placing
-       if (isRightClick) {
-           if (draggingItem) {
-               // Place 1
-               if (!slotItem) {
-                   setSlotData(id, { type: draggingItem.type, count: 1 });
-                   draggingItem.count--;
-                   if (draggingItem.count <= 0) draggingItem = null;
-               } else if (slotItem.type === draggingItem.type && slotItem.count < 64) {
-                   slotItem.count++;
-                   draggingItem.count--;
-                   if (draggingItem.count <= 0) draggingItem = null;
-               }
-           } else if (slotItem && slotItem.count > 1) {
-               // Pick up half
-               let half = Math.ceil(slotItem.count / 2);
-               draggingItem = { type: slotItem.type, count: half };
-               slotItem.count -= half;
-               if (slotItem.count <= 0) setSlotData(id, null);
-           }
-       } else {
-           // Left click: Swap or merge
-           if (draggingItem) {
-               if (!slotItem) {
-                   setSlotData(id, draggingItem);
-                   draggingItem = null;
-               } else if (slotItem.type === draggingItem.type) {
-                   let total = slotItem.count + draggingItem.count;
-                   if (total <= 64) {
-                       slotItem.count = total;
-                       draggingItem = null;
-                   } else {
-                       slotItem.count = 64;
-                       draggingItem.count = total - 64;
-                   }
-               } else {
-                   // Swap
-                   setSlotData(id, draggingItem);
-                   draggingItem = slotItem;
-               }
-           } else {
-               if (slotItem) {
-                   draggingItem = slotItem;
-                   setSlotData(id, null);
-               }
-           }
-       }
-       
-       updateDragGhost(e);
-       checkCrafting();
-       updateAllVisuals();
-   }
-
-
-   function updateDragGhost(e) {
-       if (draggingItem) {
-           dragGhostEl.style.display = 'flex';
-           dragGhostEl.style.left = (e.clientX - 12) + 'px';
-           dragGhostEl.style.top = (e.clientY - 12) + 'px';
-           dragGhostEl.innerHTML = '';
-           let itemDiv = document.createElement('div');
-           itemDiv.className = 'mc-item';
-           itemDiv.style.background = getOreColor(draggingItem.type);
-           dragGhostEl.appendChild(itemDiv);
-           if (draggingItem.count > 1) {
-               let countDiv = document.createElement('div');
-               countDiv.className = 'mc-count';
-               countDiv.innerText = draggingItem.count;
-               dragGhostEl.appendChild(countDiv);
-           }
-       } else {
-           dragGhostEl.style.display = 'none';
-       }
-   }
-
-
-   window.addEventListener('mousemove', (e) => { if (draggingItem) updateDragGhost(e); });
-
-
-   function dropDraggingItemToWorld(e) {
-       let pwx = camera.x + viewW() / 2;
-       let pwy = camera.y + viewH() / 2;
-       droppedItems.push({ x: pwx, y: pwy, vx: 0, vy: 0, type: draggingItem.type, life: 1, count: draggingItem.count });
-       draggingItem = null;
-       updateDragGhost(e);
-       updateAllVisuals();
-   }
-
-
-   // Minecraft-style: only drop the held item into the world when you click
-   // OUTSIDE the inventory panel (on the dark backdrop or the game itself),
-   // not on every mouse release - a normal click already fires mousedown then
-   // mouseup, so a release-based listener would instantly un-pick-up anything
-   // you just grabbed.
-   mcScreen.addEventListener('mousedown', (e) => {
-       if (e.target === mcScreen && draggingItem) dropDraggingItemToWorld(e);
-   });
-
-
-   window.addEventListener('wheel', (e) => {
-       if (activeUI !== 'none') return; 
-       if (e.deltaY > 0) selectedSlot = (selectedSlot + 1) % 9;
-       else selectedSlot = (selectedSlot - 1 + 9) % 9;
-       updateAllVisuals();
-   });
-
-
-   function checkCrafting() {
-       let match2 = null, match3 = null;
-       for(let r of recipes) {
-           if (r.size === 2 && !match2) {
-               let valid = true;
-               for(let i=0; i<4; i++) {
-                   let gType = craft2[i] ? craft2[i].type : 0;
-                   if (gType !== r.pattern[i]) { valid = false; break; }
-               }
-               if (valid) match2 = r.result;
-           } else if (r.size === 3 && !match3) {
-               let valid = true;
-               for(let i=0; i<9; i++) {
-                   let gType = craft3[i] ? craft3[i].type : 0;
-                   if (gType !== r.pattern[i]) { valid = false; break; }
-               }
-               if (valid) match3 = r.result;
-           }
-       }
-       out2 = match2 ? { type: match2, count: 1 } : null;
-       out3 = match3 ? { type: match3, count: 1 } : null;
-   }
-
-
-   function addItemToInventory(type) {
-       // Try stack first
-       for(let i = 0; i < 36; i++) {
-           if (inventory[i] && inventory[i].type === type && inventory[i].count < 64) {
-               inventory[i].count++;
-               updateAllVisuals();
-               return true;
-           }
-       }
-       // Find empty
-       for(let i = 0; i < 36; i++) {
-           if (!inventory[i]) {
-               inventory[i] = { type: type, count: 1 };
-               updateAllVisuals();
-               return true;
-           }
-       }
-       return false; 
-   }
-
-
-   function spawnDroppedItem(tx, ty, type) {
-       // Check if we can stack in inventory first (auto pickup)
-       droppedItems.push({
-           x: tx * TILE_SIZE + TILE_SIZE / 2,
-           y: ty * TILE_SIZE + TILE_SIZE / 2,
-           vx: (Math.random() - 0.5) * 4, 
-           vy: (Math.random() - 0.5) * 4,
-           type: type,
-           count: 1,
-           life: 0 
-       });
-   }
-
-
-   // --- CAVE GENERATION ---
-   function initMap() {
-       for (let x = 0; x < MAP_W; x++) {
-           map[x] = [];
-           for (let y = 0; y < MAP_H; y++) {
-               if (x === 0 || x === MAP_W - 1 || y === 0 || y === MAP_H - 1) {
-                   map[x][y] = 0;
-               } else if (Math.random() < INITIAL_WALL_PERCENT) {
-                   // This tile is a wall - roll for a single-tile ore vein.
-                   // 8 = Coal (black), 9 = Iron (grey-white)
-                   let oreRoll = Math.random();
-                   if (oreRoll < IRON_SPAWN_CHANCE) map[x][y] = 9;
-                   else if (oreRoll < IRON_SPAWN_CHANCE + COAL_SPAWN_CHANCE) map[x][y] = 8;
-                   else map[x][y] = 0;                      // plain wall
-               } else {
-                   map[x][y] = 1;
-               }
-           }
-       }
-   }
-
-
-   function countHoleNeighbors(x, y) {
-       let count = 0;
-       for (let i = -1; i <= 1; i++) { for (let j = -1; j <= 1; j++) { if (i === 0 && j === 0) continue; let nx = x + i; let ny = y + j; if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue; if (map[nx][ny] === 1 || map[nx][ny] === 2) count++; } }
-       return count;
-   }
-
-
-   function runCellularAutomata() {
-       for (let i = 0; i < CA_SIMULATION_STEPS; i++) {
-           let newMap = [];
-           for (let x = 0; x < MAP_W; x++) { newMap[x] = []; for (let y = 0; y < MAP_H; y++) { let holeNeighbors = countHoleNeighbors(x, y); if (map[x][y] === 1 || map[x][y] === 2) { if (holeNeighbors < HOLE_SURVIVE_MIN_NEIGHBORS) newMap[x][y] = 0; else newMap[x][y] = map[x][y]; } else { if (holeNeighbors >= WALL_ERODE_MIN_NEIGHBORS) newMap[x][y] = 1; else newMap[x][y] = map[x][y]; /* preserve plain/coal/iron wall type */ } } }
-           map = newMap;
-       }
-   }
-
-
-   function bresenhamLine(x0, y0, x1, y1) {
-       let points = [];
-       let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-       let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-       let err = dx - dy;
-       let x = x0, y = y0;
-       while (true) {
-           points.push({x, y});
-           if (x === x1 && y === y1) break;
-           let e2 = 2 * err;
-           if (e2 > -dy) { err -= dy; x += sx; }
-           if (e2 < dx) { err += dx; y += sy; }
-       }
-       return points;
-   }
-
-
-   function connectNearbyWhiteTiles() {
-       let whiteTiles = [];
-       for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) { if (map[x][y] === 1) whiteTiles.push({x, y}); } }
-       if (whiteTiles.length < 2) return;
-       let iterations = Math.round((MAP_W * MAP_H) / WALL_CONNECT_DIVISOR);
-       for (let i = 0; i < iterations; i++) {
-           if (whiteTiles.length < 2) break;
-           let t1 = whiteTiles[Math.floor(Math.random() * whiteTiles.length)];
-           let candidates = [];
-           for (let dx = -WALL_CONNECT_MAX_DIST; dx <= WALL_CONNECT_MAX_DIST; dx++) {
-               for (let dy = -WALL_CONNECT_MAX_DIST; dy <= WALL_CONNECT_MAX_DIST; dy++) {
-                   if (dx === 0 && dy === 0) continue;
-                   if (Math.hypot(dx, dy) > WALL_CONNECT_MAX_DIST) continue;
-                   let nx = t1.x + dx, ny = t1.y + dy;
-                   if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
-                   if (map[nx][ny] !== 1) continue;
-                   let line = bresenhamLine(t1.x, t1.y, nx, ny);
-                   let hasWallBetween = line.some(p => map[p.x][p.y] === 0);
-                   if (hasWallBetween) candidates.push({x: nx, y: ny, line});
-               }
-           }
-           if (candidates.length === 0) continue;
-           let chosen = candidates[Math.floor(Math.random() * candidates.length)];
-           chosen.line.forEach(p => {
-               if (map[p.x][p.y] === 0) {
-                   map[p.x][p.y] = 1;
-                   whiteTiles.push({x: p.x, y: p.y});
-               }
-           });
-       }
-   }
-
-
-   function carveSpawnRoom() {
-       let cx = Math.floor(MAP_W / 2); let cy = Math.floor(MAP_H / 2);
-       for (let x = cx - SPAWN_ROOM_RADIUS; x <= cx + SPAWN_ROOM_RADIUS; x++) { for (let y = cy - SPAWN_ROOM_RADIUS; y <= cy + SPAWN_ROOM_RADIUS; y++) { if (x >= 0 && x < MAP_W && y >= 0 && y < MAP_H) map[x][y] = 1; } }
-       
-       let tableX = cx - 4; let tableY = cy;
-       if (tableX >= 0 && tableX < MAP_W && tableY >= 0 && tableY < MAP_H) {
-           map[tableX][tableY] = 7;
-           craftingTablePos = { x: tableX, y: tableY };
-       }
-
-
-       camera.x = (cx * TILE_SIZE) - (viewW() / 2) + (TILE_SIZE / 2);
-       camera.y = (cy * TILE_SIZE) - (viewH() / 2) + (TILE_SIZE / 2);
-   }
-
-
-   function generateLakes() {
-       let numberOfLakes = Math.round((MAP_W * MAP_H) / LAKE_DENSITY_DIVISOR);
-       for (let i = 0; i < numberOfLakes; i++) {
-           let targetSize = Math.floor(Math.random() * (LAKE_MAX_SIZE - LAKE_MIN_SIZE + 1)) + LAKE_MIN_SIZE;
-           let shapeData = makeOrganicLakeShape(targetSize);
-           let gridSize = shapeData.length; let half = Math.floor(gridSize / 2);
-           if (MAP_W <= gridSize || MAP_H <= gridSize) continue;
-           let placed = false;
-           for (let attempt = 0; attempt < 20; attempt++) {
-               let centerX = Math.floor(Math.random() * (MAP_W - gridSize)) + half;
-               let centerY = Math.floor(Math.random() * (MAP_H - gridSize)) + half;
-               let shoreline = 0; let wallTouch = 0;
-               for (let lx = 0; lx < gridSize; lx++) { for (let ly = 0; ly < gridSize; ly++) {
-                   if (shapeData[lx][ly] === 1) {
-                       let gx = centerX + lx - half; let gy = centerY + ly - half;
-                       if (gx >= 0 && gx < MAP_W && gy >= 0 && gy < MAP_H) {
-                           if (map[gx][gy] === 1) shoreline++; else if (map[gx][gy] === 0 || map[gx][gy] === 8 || map[gx][gy] === 9) wallTouch++;
-                       }
-                   }
-               }}
-               if (shoreline >= LAKE_MIN_SHORELINE && wallTouch >= LAKE_MIN_WALL_TOUCH) {
-                   for (let lx = 0; lx < gridSize; lx++) { for (let ly = 0; ly < gridSize; ly++) {
-                       if (shapeData[lx][ly] === 1) {
-                           let gx = centerX + lx - half; let gy = centerY + ly - half;
-                           if (gx >= 0 && gx < MAP_W && gy >= 0 && gy < MAP_H) map[gx][gy] = 2;
-                       }
-                   }}
-                   placed = true; break;
-               }
-           }
-       }
-   }
-
-
-   function makeOrganicLakeShape(targetSize) {
-       let size = LAKE_GRID_SIZE; let grid = emptyLocalGrid(size);
-       let cx = size / 2, cy = size / 2; let maxDist = Math.hypot(cx, cy);
-       for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) {
-           let dist = Math.hypot(x - cx, y - cy);
-           let chance = 0.55 * (1 - dist / maxDist) + 0.05;
-           grid[x][y] = (Math.random() < chance) ? 1 : 0;
-       }}
-       for (let step = 0; step < 4; step++) {
-           let newGrid = emptyLocalGrid(size);
-           for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) {
-               let neighbors = countLocalNeighbors(grid, x, y);
-               if (grid[x][y] === 1) newGrid[x][y] = (neighbors < 3) ? 0 : 1;
-               else newGrid[x][y] = (neighbors > 5) ? 1 : 0;
-           }}
-           grid = newGrid;
-       }
-       grid = isolateMainBlobAndFill(grid); grid = resizeLocalShape(grid, targetSize);
-       return grid;
-   }
-
-
-   function countWaterNeighbors(x, y) {
-       let count = 0;
-       for (let i = -1; i <= 1; i++) { for (let j = -1; j <= 1; j++) {
-           if (i === 0 && j === 0) continue; let nx = x + i, ny = y + j;
-           if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
-           if (map[nx][ny] === 2) count++;
-       }}
-       return count;
-   }
-
-
-   function engulfSurroundedWhiteTiles() {
-       let toConvert = [];
-       for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
-           if (map[x][y] === 1 && countWaterNeighbors(x, y) >= WATER_ENGULF_MIN_NEIGHBORS) toConvert.push({x, y});
-       }}
-       toConvert.forEach(p => map[p.x][p.y] = 2);
-   }
-
-
-   function smoothWaterEdges() {
-       for (let step = 0; step < WATER_SMOOTH_STEPS; step++) {
-           let changes = [];
-           for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
-               if (map[x][y] === 0 || map[x][y] === 8 || map[x][y] === 9) continue; 
-               let waterNeighbors = countWaterNeighbors(x, y);
-               if (map[x][y] === 1 && waterNeighbors >= 5) changes.push({x, y, val: 2}); 
-               else if (map[x][y] === 2 && waterNeighbors <= 2) changes.push({x, y, val: 1}); 
-           }}
-           changes.forEach(c => map[c.x][c.y] = c.val);
-       }
-   }
-
-
-   function generateOre() {
-       let numberOfOre = Math.round((MAP_W * MAP_H) / ORE_DENSITY_DIVISOR);
-       let spawnCx = MAP_W / 2, spawnCy = MAP_H / 2;
-       for (let i = 0; i < numberOfOre; i++) {
-           let placed = false;
-           for (let attempt = 0; attempt < 20; attempt++) {
-               let x = Math.floor(Math.random() * (MAP_W - 3)) + 1; let y = Math.floor(Math.random() * (MAP_H - 3)) + 1;
-               let whiteTouch = 0;
-               for (let px = x - 1; px <= x + 2; px++) { for (let py = y - 1; py <= y + 2; py++) {
-                   if (px >= x && px <= x + 1 && py >= y && py <= y + 1) continue;
-                   if (px < 0 || px >= MAP_W || py < 0 || py >= MAP_H) continue;
-                   if (map[px][py] === 1) whiteTouch++;
-               }}
-               if (whiteTouch >= ORE_MIN_WHITE_TOUCH) {
-                   let dist = Math.hypot((x + 0.5) - spawnCx, (y + 0.5) - spawnCy);
-                   let oreValue;
-                   if (dist <= 100) oreValue = 3; else if (dist <= 200) oreValue = 4; else if (dist <= 300) oreValue = 5; else oreValue = 6;                   
-                   map[x][y] = oreValue; map[x + 1][y] = oreValue;
-                   map[x][y + 1] = oreValue; map[x + 1][y + 1] = oreValue;
-                   placed = true; break;
-               }
-           }
-       }
-   }
-
-
-   // ==========================================
-   // ⛏️ ORE VEIN CLUSTERING (Core Keeper style)
-   // Runs after CA smoothing. Each coal/iron tile has a chance to spread
-   // into an adjacent plain wall tile, building up small clumps instead of
-   // isolated single tiles - and sometimes the spread tile flips to the
-   // OTHER ore type, so coal and iron occasionally end up in the same vein.
-   // ==========================================
-   function clusterOreVeins() {
-       for (let pass = 0; pass < ORE_VEIN_PASSES; pass++) {
-           let existingOre = [];
-           for (let x = 0; x < MAP_W; x++) { for (let y = 0; y < MAP_H; y++) {
-               if (map[x][y] === 8 || map[x][y] === 9) existingOre.push({x, y, type: map[x][y]});
-           }}
-
-
-           existingOre.forEach(o => {
-               if (Math.random() >= ORE_VEIN_SPREAD_CHANCE) return;
-
-
-               let dirs = [[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];
-               dirs.sort(() => Math.random() - 0.5);
-
-
-               for (let d = 0; d < dirs.length; d++) {
-                   let nx = o.x + dirs[d][0], ny = o.y + dirs[d][1];
-                   if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) continue;
-                   if (map[nx][ny] !== 0) continue; // only spread into plain wall
-                   let newType = (Math.random() < ORE_VEIN_MIX_CHANCE) ? (o.type === 8 ? 9 : 8) : o.type;
-                   map[nx][ny] = newType;
-                   break;
-               }
-           });
-       }
-   }
-
-
-   // ==========================================
-   // 🌲 WOOD (Core Keeper style: small clusters of trees on open floor)
-   // ==========================================
-   function generateWood() {
-       let numberOfClusters = Math.round((MAP_W * MAP_H) / WOOD_DENSITY_DIVISOR);
-       placeWoodClusters(numberOfClusters, null); // uniform, across the whole map
-   }
-
-
-   function placeWoodClusters(count, centerBias) {
-       for (let i = 0; i < count; i++) {
-           let sx, sy, found = false;
-           for (let attempt = 0; attempt < 20 && !found; attempt++) {
-               if (centerBias) {
-                   let angle = Math.random() * Math.PI * 2;
-                   let r = centerBias.radius * Math.random();
-                   sx = Math.floor(centerBias.x + Math.cos(angle) * r);
-                   sy = Math.floor(centerBias.y + Math.sin(angle) * r);
-               } else {
-                   sx = Math.floor(Math.random() * MAP_W);
-                   sy = Math.floor(Math.random() * MAP_H);
-               }
-               if (sx >= 0 && sx < MAP_W && sy >= 0 && sy < MAP_H && map[sx][sy] === 1) found = true;
-           }
-           if (!found) continue;
-
-
-           map[sx][sy] = 20;
-           let placed = [{x: sx, y: sy}];
-           let clusterSize = WOOD_CLUSTER_MIN + Math.floor(Math.random() * (WOOD_CLUSTER_MAX - WOOD_CLUSTER_MIN + 1));
-
-
-           for (let c = 1; c < clusterSize; c++) {
-               let base = placed[Math.floor(Math.random() * placed.length)];
-               let nx = base.x + Math.floor(Math.random() * 3) - 1;
-               let ny = base.y + Math.floor(Math.random() * 3) - 1;
-               if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H && map[nx][ny] === 1) {
-                   map[nx][ny] = 20;
-                   placed.push({x: nx, y: ny});
-               }
-           }
-       }
-   }
-
-
-   function emptyLocalGrid(size) { return Array(size).fill(0).map(() => Array(size).fill(0)); }
-   function countLocalNeighbors(grid, x, y) { let size = grid.length; let count = 0; for (let dx = -1; dx <= 1; dx++) { for (let dy = -1; dy <= 1; dy++) { if (dx === 0 && dy === 0) continue; let nx = x + dx; let ny = y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1) count++; } } return count; }
-   function floodFillLocal(grid, startX, startY) { let size = grid.length; if (grid[startX][startY] !== 1) return []; let visited = Array(size).fill(0).map(() => Array(size).fill(false)); let queue = [{x: startX, y: startY}]; visited[startX][startY] = true; let result = []; while (queue.length > 0) { let curr = queue.shift(); result.push(curr); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { if (dx === 0 && dy === 0) continue; let nx = curr.x + dx; let ny = curr.y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1 && !visited[nx][ny]) { visited[nx][ny] = true; queue.push({x: nx, y: ny}); } } } return result; }
-   function getBoundingBox(tiles, size) { let minX = size, maxX = 0, minY = size, maxY = 0; tiles.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); }); return {minX, maxX, minY, maxY}; }
-   function countLocalOnes(grid) { let size = grid.length; let c = 0; for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) if (grid[x][y] === 1) c++; return c; }
-   function getLocalBorder(grid) { let size = grid.length; let border = []; for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) { if (grid[x][y] === 0) { for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { let nx = x + dx; let ny = y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1) { border.push({x, y}); break; } } } } } return border; }
-   function isolateMainBlobAndFill(grid) { let size = grid.length; let cx = size / 2, cy = size / 2; let best = null, bestDist = Infinity; for (let x = 0; x < size; x++) { for (let y = 0; y < size; y++) { if (grid[x][y] === 1) { let d = Math.hypot(x - cx, y - cy); if (d < bestDist) { bestDist = d; best = {x, y}; } } } } if (!best) return grid; let mainBlob = floodFillLocal(grid, best.x, best.y); let cleaned = emptyLocalGrid(size); mainBlob.forEach(p => cleaned[p.x][p.y] = 1); let boundingBox = getBoundingBox(mainBlob, size); for (let x = boundingBox.minX; x <= boundingBox.maxX; x++) { for (let y = boundingBox.minY; y <= boundingBox.maxY; y++) { if (cleaned[x][y] === 0) { let surrounded = countLocalNeighbors(cleaned, x, y); if (surrounded >= 4) cleaned[x][y] = 1; } } } return cleaned; }
-   function resizeLocalShape(grid, targetSize) { let currentSize = countLocalOnes(grid); if (currentSize === 0) return grid; if (currentSize < targetSize) { while (currentSize < targetSize) { let borderTiles = getLocalBorder(grid); if (borderTiles.length === 0) break; let pick = borderTiles[Math.floor(Math.random() * borderTiles.length)]; grid[pick.x][pick.y] = 1; currentSize++; } } else if (currentSize > targetSize) { let size = grid.length; let cx = size / 2, cy = size / 2; let allOnes = []; for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) if (grid[x][y] === 1) allOnes.push({x, y}); allOnes.sort((a, b) => Math.hypot(b.x - cx, b.y - cy) - Math.hypot(a.x - cx, a.y - cy)); while (currentSize > targetSize && allOnes.length > 0) { let remove = allOnes.shift(); let safe = true; for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) { let nx = remove.x + dx, ny = remove.y + dy; if (nx >= 0 && nx < size && ny >= 0 && ny < size && grid[nx][ny] === 1 && countLocalNeighbors(grid, nx, ny) <= 3) safe = false; } if (safe) { grid[remove.x][remove.y] = 0; currentSize--; } } } return grid; }
-
-
-   function tileAtWorld(wx, wy) {
-       let tx = Math.floor(wx / TILE_SIZE); let ty = Math.floor(wy / TILE_SIZE);
-       if (tx < 0 || tx >= MAP_W || ty < 0 || ty >= MAP_H) return 0;
-       return map[tx][ty];
-   }
-
-
-   function update() {
-       if (generating) return;
-
-
-       if (keys['e'] && !ePrevDown) { 
-           if (activeUI === 'inventory') closeUI();
-           else if (activeUI === 'none') openUI('inventory');
-       }
-       ePrevDown = keys['e'];
-
-
-       if (keys['v'] && !vPrevDown) { mode = (mode === 'ghost') ? 'human' : 'ghost'; }
-       vPrevDown = keys['v'];
-
-
-       let speed = CAMERA_SPEED;
-       if (keys['shift']) speed = CAMERA_SPRINT_SPEED;
-
-
-       let dx = 0, dy = 0;
-       if (keys['w'] || keys['arrowup']) dy -= speed;
-       if (keys['s'] || keys['arrowdown']) dy += speed;
-       if (keys['a'] || keys['arrowleft']) dx -= speed;
-       if (keys['d'] || keys['arrowright']) dx += speed;
-
-
-       let playerWorldX = camera.x + viewW() / 2;
-       let playerWorldY = camera.y + viewH() / 2;
-
-
-       if (mode === 'ghost') {
-           camera.x += dx; camera.y += dy;
-       } else {
-           if (dx !== 0 || dy !== 0) {
-               let tile = tileAtWorld(playerWorldX + dx, playerWorldY + dy);
-               let actualDx = dx, actualDy = dy;
-
-
-               if (tile === 2) {
-                   actualDx = dx * WATER_SPEED_MULT; actualDy = dy * WATER_SPEED_MULT;
-               } else if (tile === 0 || tile >= 3) {
-                   actualDx = dx * MINING_SPEED_MULT; actualDy = dy * MINING_SPEED_MULT;
-                   let tx = Math.floor((playerWorldX + dx) / TILE_SIZE), ty = Math.floor((playerWorldY + dy) / TILE_SIZE);
-                   if (tx >= 0 && tx < MAP_W && ty >= 0 && ty < MAP_H) {
-                       if (map[tx][ty] !== 7) {
-                           if ((tile >= 3 && tile <= 6) || tile === 8 || tile === 9 || tile === 20) spawnDroppedItem(tx, ty, tile);
-                           map[tx][ty] = 1;
-                       }
-                   }
-               }
-               camera.x += actualDx; camera.y += actualDy;
-           }
-       }
-
-
-       camera.x = Math.max(0, Math.min(camera.x, MAP_W * TILE_SIZE - viewW()));
-       camera.y = Math.max(0, Math.min(camera.y, MAP_H * TILE_SIZE - viewH()));
-       
-       let currentPlayerWorldX = camera.x + viewW() / 2;
-       let currentPlayerWorldY = camera.y + viewH() / 2;
-
-
-       let pTx = Math.floor(currentPlayerWorldX / TILE_SIZE);
-       let pTy = Math.floor(currentPlayerWorldY / TILE_SIZE);
-       let distToTable = Math.hypot(pTx - craftingTablePos.x, pTy - craftingTablePos.y);
-       nearTable = distToTable < 3;
-
-
-       if (keys['c'] && !cPrevDown) {
-           if (activeUI === 'crafting') {
-               // Always close, no matter where the player is standing now
-               closeUI();
-           } else if (nearTable) {
-               if (activeUI === 'inventory') closeUI(); // swap out inventory first
-               openUI('crafting');
-           }
-       }
-       cPrevDown = keys['c'];
-       
-       for (let i = droppedItems.length - 1; i >= 0; i--) {
-           let item = droppedItems[i];
-           item.x += item.vx; item.y += item.vy;
-           item.vx *= 0.9; item.vy *= 0.9;
-           item.life = Math.min(item.life + 0.1, 1); 
-           
-           let dist = Math.hypot(item.x - currentPlayerWorldX, item.y - currentPlayerWorldY);
-           if (dist < 30) { 
-               if (addItemToInventory(item.type)) droppedItems.splice(i, 1); 
-           }
-       }
-
-
-       let posText = `X: ${Math.floor(camera.x/TILE_SIZE)} | Y: ${Math.floor(camera.y/TILE_SIZE)} | Mode: ${mode}`;
-       if (nearTable) posText += ` | Press C to Craft`;
-       document.getElementById('pos').innerText = posText;
-   }
-
-
-   function draw() {
-       if (generating) return;
-       ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-       const zs = zoomScale(); ctx.setTransform(zs, 0, 0, zs, 0, 0);
-
-
-       let startX = Math.floor(camera.x / TILE_SIZE); let startY = Math.floor(camera.y / TILE_SIZE);
-       let endX = Math.ceil((camera.x + viewW()) / TILE_SIZE); let endY = Math.ceil((camera.y + viewH()) / TILE_SIZE);
-       startX = Math.max(0, startX); startY = Math.max(0, startY); endX = Math.min(MAP_W, endX); endY = Math.min(MAP_H, endY);
-
-
-       for (let x = startX; x < endX; x++) {
-           for (let y = startY; y < endY; y++) {
-               if (map[x][y] === 1) {
-                   ctx.fillStyle = '#ffffff'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-               } else if (map[x][y] === 2) {
-                   ctx.fillStyle = '#00bfff'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-               } else if (map[x][y] === 0) {
-                   ctx.fillStyle = '#4b3621'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-               } else if (map[x][y] === 8 || map[x][y] === 9 || map[x][y] === 20) {
-                   ctx.fillStyle = getOreColor(map[x][y]); ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-               } else if (map[x][y] >= 3 && map[x][y] <= 6) {
-                   ctx.fillStyle = getOreColor(map[x][y]); ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-               } else if (map[x][y] === 7) {
-                   ctx.fillStyle = '#8B4513'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
-                   ctx.fillStyle = '#D2691E'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, 8);
-                   ctx.fillStyle = '#A0522D'; ctx.fillRect(x * TILE_SIZE - camera.x + 8, y * TILE_SIZE - camera.y + 8, 16, 16);
-               }
-           }
-       }
-
-
-       droppedItems.forEach(item => {
-           let screenX = item.x - camera.x; let screenY = item.y - camera.y;
-           if (screenX < -20 || screenX > viewW() + 20 || screenY < -20 || screenY > viewH() + 20) return;
-           let size = 12 * item.life; 
-           ctx.save(); ctx.translate(screenX, screenY); ctx.rotate(Math.PI / 4); 
-           ctx.fillStyle = getOreColor(item.type); ctx.fillRect(-size/2, -size/2, size, size);
-           ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.strokeRect(-size/2, -size/2, size, size);
-           ctx.restore();
-       });
-
-
-       let cx = viewW() / 2; let cy = viewH() / 2;
-       ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
-   }
-
-
-   function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
-
-
-   setTimeout(() => {
-       initMap(); runCellularAutomata(); clusterOreVeins(); connectNearbyWhiteTiles(); carveSpawnRoom();
-       generateLakes(); engulfSurroundedWhiteTiles(); smoothWaterEdges(); generateOre(); generateWood();
-      
-       generating = false;
-       document.getElementById('loading').style.display = 'none';
-       updateAllVisuals(); 
-       gameLoop();
-   }, 50);
-
+// ===== PARAMETERS =====
+var MAP_W=800,MAP_H=800,TILE_SIZE=32;
+var CAMERA_SPEED=6,CAMERA_SPRINT_SPEED=14;
+var WATER_SPEED_MULT=0.2,MINING_SPEED_MULT=1;
+var INITIAL_WALL_PERCENT=0.70,CA_SIMULATION_STEPS=9;
+var HOLE_SURVIVE_MIN_NEIGHBORS=3,WALL_ERODE_MIN_NEIGHBORS=4;
+var SPAWN_ROOM_RADIUS=7,WALL_CONNECT_DIVISOR=2,WALL_CONNECT_MAX_DIST=3;
+var LAKE_DENSITY_DIVISOR=10000,LAKE_MIN_SIZE=150,LAKE_MAX_SIZE=200;
+var LAKE_MIN_SHORELINE=8,LAKE_MIN_WALL_TOUCH=16,LAKE_GRID_SIZE=24;
+var WATER_ENGULF_MIN_NEIGHBORS=8,WATER_SMOOTH_STEPS=2;
+var ORE_DENSITY_DIVISOR=5000,ORE_MIN_WHITE_TOUCH=6;
+var IRON_SPAWN_CHANCE=0.002,COAL_SPAWN_CHANCE=0.005;
+var ORE_VEIN_SPREAD_CHANCE=0.75,ORE_VEIN_MIX_CHANCE=0,ORE_VEIN_PASSES=4;
+var WOOD_DENSITY_DIVISOR=40,WOOD_CLUSTER_MIN=2,WOOD_CLUSTER_MAX=8;
+
+// ===== ITEM DEFINITIONS =====
+var ITEM_NAMES={};
+var ITEM_COLORS={};
+var ITEM_TAGS={};
+
+function defItem(id,name,color,tag){
+    ITEM_NAMES[id]=name;
+    ITEM_COLORS[id]=color;
+    if(tag)ITEM_TAGS[id]=tag;
+}
+
+// Materials
+defItem(3,'Blue Crystal','#3b82f6');
+defItem(4,'Green Plank','#22c55e');
+defItem(5,'Red Crystal','#ef5350');
+defItem(6,'Purple Crystal','#a855f7');
+defItem(8,'Coal','#222');
+defItem(9,'Iron Ingot','#d1d5db');
+defItem(13,'Stone Block','#7a7a7a');
+defItem(20,'Wood','#8b5a2b');
+defItem(21,'Stick','#a0522d','St');
+
+// Utility
+defItem(10,'Scanner','#fbbf24','Sc');
+defItem(18,'Torch','#f59e0b','To');
+defItem(19,'Furnace','#57534e','Fn');
+defItem(42,'Shield','#6b4226','Sh');
+defItem(43,'Bow','#8b6914','Bw');
+defItem(44,'Flint & Steel','#666','FnS');
+
+// Iron Armor
+defItem(11,'Iron Helmet','#94a3b8','Helm');
+defItem(12,'Iron Chestplate','#475569','Cplt');
+defItem(14,'Iron Leggings','#64748b','Legs');
+defItem(15,'Iron Boots','#334155','Boot');
+
+// Wooden Tools
+defItem(22,'Wooden Pickaxe','#c8a86e','WPk');
+defItem(23,'Wooden Sword','#d4a574','WSw');
+defItem(24,'Wooden Axe','#b8944c','WAx');
+defItem(25,'Wooden Shovel','#c9a96e','WSh');
+defItem(26,'Wooden Hoe','#bfa060','WHo');
+
+// Stone Tools
+defItem(27,'Stone Pickaxe','#8a8a8a','SPk');
+defItem(28,'Stone Sword','#9a9a9a','SSw');
+defItem(29,'Stone Axe','#7e7e7e','SAx');
+defItem(30,'Stone Shovel','#8e8e8e','SSh');
+defItem(31,'Stone Hoe','#808080','SHo');
+
+// Iron Tools
+defItem(32,'Iron Pickaxe','#c0c0c0','IPk');
+defItem(33,'Iron Sword','#d0d0d0','ISw');
+defItem(34,'Iron Axe','#b0b0b0','IAx');
+defItem(35,'Iron Shovel','#a8a8a8','ISh');
+defItem(36,'Iron Hoe','#9e9e9e','IHo');
+
+// Diamond Tools
+defItem(37,'Diamond Pickaxe','#00e5ff','DPk');
+defItem(38,'Diamond Sword','#40f0ff','DSw');
+defItem(39,'Diamond Axe','#00d0e0','DAx');
+defItem(40,'Diamond Shovel','#20e0f0','DSh');
+defItem(41,'Diamond Hoe','#00c0d0','DHo');
+
+// Diamond Armor
+defItem(45,'Diamond Helmet','#00bcd4','DHlm');
+defItem(46,'Diamond Chestplate','#0097a7','DCpl');
+defItem(47,'Diamond Leggings','#00838f','DLgs');
+defItem(48,'Diamond Boots','#006064','DBts');
+
+function getOreColor(t){return ITEM_COLORS[t]||'#fff'}
+function getItemName(t){return ITEM_NAMES[t]||'Unknown'}
+
+// ===== RECIPES =====
+// S=21(Stick) P=4(Plank) I=9(Iron) C=8(Coal) B=13(Stone) D=3(Diamond) W=20(Wood)
+var S=21,P=4,I=9,C=8,B=13,D=3,W=20;
+
+var recipes=[
+    // Sticks
+    {size:3,pat:[0,0,0, P,0,0, P,0,0],res:21,cnt:4},
+    {size:3,pat:[0,0,0, W,0,0, W,0,0],res:21,cnt:4},
+
+    // Wooden Tools
+    {size:3,pat:[P,P,P, 0,S,0, 0,S,0],res:22},
+    {size:3,pat:[0,P,0, 0,P,0, 0,S,0],res:23},
+    {size:3,pat:[P,P,0, P,S,0, 0,S,0],res:24},
+    {size:3,pat:[0,P,0, 0,S,0, 0,S,0],res:25},
+    {size:3,pat:[P,P,0, 0,S,0, 0,S,0],res:26},
+
+    // Stone Tools
+    {size:3,pat:[B,B,B, 0,S,0, 0,S,0],res:27},
+    {size:3,pat:[0,B,0, 0,B,0, 0,S,0],res:28},
+    {size:3,pat:[B,B,0, B,S,0, 0,S,0],res:29},
+    {size:3,pat:[0,B,0, 0,S,0, 0,S,0],res:30},
+    {size:3,pat:[B,B,0, 0,S,0, 0,S,0],res:31},
+
+    // Iron Tools
+    {size:3,pat:[I,I,I, 0,S,0, 0,S,0],res:32},
+    {size:3,pat:[0,I,0, 0,I,0, 0,S,0],res:33},
+    {size:3,pat:[I,I,0, I,S,0, 0,S,0],res:34},
+    {size:3,pat:[0,I,0, 0,S,0, 0,S,0],res:35},
+    {size:3,pat:[I,I,0, 0,S,0, 0,S,0],res:36},
+
+    // Diamond Tools
+    {size:3,pat:[D,D,D, 0,S,0, 0,S,0],res:37},
+    {size:3,pat:[0,D,0, 0,D,0, 0,S,0],res:38},
+    {size:3,pat:[D,D,0, D,S,0, 0,S,0],res:39},
+    {size:3,pat:[0,D,0, 0,S,0, 0,S,0],res:40},
+    {size:3,pat:[D,D,0, 0,S,0, 0,S,0],res:41},
+
+    // Iron Armor
+    {size:3,pat:[I,I,I, I,0,I, 0,0,0],res:11},
+    {size:3,pat:[I,I,I, I,0,I, I,I,I],res:12},
+    {size:3,pat:[I,I,I, I,0,I, I,0,I],res:14},
+    {size:3,pat:[I,0,I, I,0,I, 0,0,0],res:15},
+
+    // Diamond Armor
+    {size:3,pat:[D,D,D, D,0,D, 0,0,0],res:45},
+    {size:3,pat:[D,D,D, D,0,D, D,D,D],res:46},
+    {size:3,pat:[D,D,D, D,0,D, D,0,D],res:47},
+    {size:3,pat:[D,0,D, D,0,D, 0,0,0],res:48},
+
+    // Blocks & Utility
+    {size:2,pat:[P,P,P,P],res:13,cnt:4},
+    {size:3,pat:[0,C,0, 0,S,0, 0,0,0],res:18,cnt:4},
+    {size:3,pat:[B,B,B, B,0,B, B,B,B],res:19},
+    {size:3,pat:[I,S,I, I,S,I, 0,S,0],res:42},
+    {size:3,pat:[0,S,I, S,0,I, 0,S,I],res:43},
+    {size:3,pat:[0,I,0, 0,0,C, 0,0,0],res:44},
+    {size:3,pat:[0,D,0, D,5,D, 0,D,0],res:10}
+];
+
+// ===== RECIPE MATCHING (shifted patterns) =====
+function matchRecipe(gridItems,gridSize,recipe){
+    var g2d=[];
+    for(var r=0;r<gridSize;r++){
+        g2d[r]=[];
+        for(var c=0;c<gridSize;c++){
+            var it=gridItems[r*gridSize+c];
+            g2d[r][c]=it?it.type:0;
+        }
+    }
+    var ps=recipe.size,pp=recipe.pat,p2d=[];
+    for(var r=0;r<ps;r++){
+        p2d[r]=[];
+        for(var c=0;c<ps;c++) p2d[r][c]=pp[r*ps+c];
+    }
+    var rMinR=ps,rMaxR=-1,rMinC=ps,rMaxC=-1;
+    for(var r=0;r<ps;r++) for(var c=0;c<ps;c++){
+        if(p2d[r][c]!==0){
+            if(r<rMinR)rMinR=r; if(r>rMaxR)rMaxR=r;
+            if(c<rMinC)rMinC=c; if(c>rMaxC)rMaxC=c;
+        }
+    }
+    if(rMaxR===-1)return false;
+    var rH=rMaxR-rMinR+1,rW=rMaxC-rMinC+1;
+    if(rH>gridSize||rW>gridSize)return false;
+
+    var gMinR=gridSize,gMaxR=-1,gMinC=gridSize,gMaxC=-1;
+    for(var r=0;r<gridSize;r++) for(var c=0;c<gridSize;c++){
+        if(g2d[r][c]!==0){
+            if(r<gMinR)gMinR=r; if(r>gMaxR)gMaxR=r;
+            if(c<gMinC)gMinC=c; if(c>gMaxC)gMaxC=c;
+        }
+    }
+    if(gMaxR===-1)return false;
+    var gH=gMaxR-gMinR+1,gW=gMaxC-gMinC+1;
+    if(rH!==gH||rW!==gW)return false;
+    for(var r=0;r<rH;r++) for(var c=0;c<rW;c++){
+        if(g2d[gMinR+r][gMinC+c]!==p2d[rMinR+r][rMinC+c])return false;
+    }
+    return true;
+}
+
+function getRecipeBB(r){
+    var s=r.size,p=r.pat,minR=s,maxR=-1,minC=s,maxC=-1;
+    for(var row=0;row<s;row++) for(var col=0;col<s;col++){
+        if(p[row*s+col]!==0){
+            if(row<minR)minR=row; if(row>maxR)maxR=row;
+            if(col<minC)minC=col; if(col>maxC)maxC=col;
+        }
+    }
+    return{h:maxR===-1?0:maxR-minR+1,w:maxC===-1?0:maxC-minC+1};
+}
+
+// ===== ENGINE =====
+var canvas=document.getElementById('gameCanvas');
+var ctx=canvas.getContext('2d');
+var map=[];
+var generating=true;
+var camera={x:0,y:0};
+var keys={};
+var mode='ghost';
+var ePrev=false,vPrev=false,cPrev=false;
+
+// ===== INVENTORY STATE =====
+var inventory=new Array(36).fill(null);
+var armor=new Array(4).fill(null);
+var craft2=new Array(4).fill(null);
+var craft3=new Array(9).fill(null);
+var out2=null,out3=null;
+var selectedSlot=0;
+var activeUI='none';
+var craftingTablePos={x:0,y:0};
+var nearTable=false;
+var droppedItems=[];
+
+// ===== INTERACTION STATE =====
+var draggingItem=null;
+var rightMouseDown=false;
+var dragVisited=new Set();
+var hoveredSlotId=null;
+
+// ===== INPUT =====
+window.addEventListener('keydown',function(e){
+    keys[e.key.toLowerCase()]=true;
+    if(['e','c','q'].indexOf(e.key.toLowerCase())>=0)e.preventDefault();
+    handleHotkeys(e);
+});
+window.addEventListener('keyup',function(e){keys[e.key.toLowerCase()]=false});
+window.addEventListener('contextmenu',function(e){e.preventDefault()});
+
+function handleHotkeys(e){
+    var k=e.key.toLowerCase();
+    // Number keys 1-9
+    if(k>='1'&&k<='9'){
+        var num=parseInt(k)-1;
+        if(activeUI==='none'){
+            selectedSlot=num;
+            updateAllVisuals();
+        } else if(hoveredSlotId){
+            // Move hovered item to hotbar slot
+            var data=getSlotData(hoveredSlotId);
+            if(data){
+                var existing=inventory[num];
+                inventory[num]=data;
+                setSlotData(hoveredSlotId,existing);
+                updateAllVisuals();
+            } else if(draggingItem){
+                if(!inventory[num]){
+                    inventory[num]=draggingItem;
+                    draggingItem=null;
+                } else if(inventory[num].type===draggingItem.type){
+                    var tot=inventory[num].count+draggingItem.count;
+                    if(tot<=64){inventory[num].count=tot;draggingItem=null;}
+                    else{inventory[num].count=64;draggingItem.count=tot-64;}
+                }
+                updateAllVisuals();
+            }
+        }
+    }
+    // Q to drop
+    if(k==='q'){
+        if(activeUI==='none'){
+            var item=inventory[selectedSlot];
+            if(item){dropItemToWorld(item.type,item.count);inventory[selectedSlot]=null;updateAllVisuals();}
+        } else if(hoveredSlotId){
+            var data=getSlotData(hoveredSlotId);
+            if(data){dropItemToWorld(data.type,data.count);setSlotData(hoveredSlotId,null);updateAllVisuals();}
+        }
+    }
+}
+
+function dropItemToWorld(type,count){
+    var pwx=camera.x+viewW()/2,pwy=camera.y+viewH()/2;
+    droppedItems.push({x:pwx,y:pwy,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,type:type,count:count,life:0});
+}
+
+function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight}
+window.addEventListener('resize',resize);resize();
+
+var BASE_DPR=window.devicePixelRatio||1;
+function zoomScale(){return BASE_DPR/(window.devicePixelRatio||1)}
+function viewW(){return canvas.width/zoomScale()}
+function viewH(){return canvas.height/zoomScale()}
+window.addEventListener('wheel',function(e){if(e.ctrlKey||e.metaKey)e.preventDefault()},{passive:false});
+window.addEventListener('keydown',function(e){if((e.ctrlKey||e.metaKey)&&['+','-','=','_','0'].indexOf(e.key)>=0)e.preventDefault()});
+['gesturestart','gesturechange','gestureend'].forEach(function(ev){window.addEventListener(ev,function(e){e.preventDefault()},{passive:false})});
+
+// ===== UI SETUP =====
+var mcScreen=document.getElementById('mc-screen');
+var mcWindow=document.getElementById('mc-window');
+var hotbarDiv=document.getElementById('mc-hotbar');
+var dragGhostEl=document.getElementById('drag-ghost');
+var tooltipEl=document.getElementById('tooltip');
+
+for(var i=0;i<9;i++){var slot=createSlot('inv-'+i);hotbarDiv.appendChild(slot)}
+
+function createSlot(id){
+    var slot=document.createElement('div');
+    slot.className='mc-slot';
+    slot.dataset.id=id;
+    slot.addEventListener('mousedown',handleSlotMouseDown);
+    slot.addEventListener('mouseenter',handleSlotEnter);
+    slot.addEventListener('mouseleave',handleSlotLeave);
+    slot.addEventListener('dblclick',handleSlotDblClick);
+    return slot;
+}
+
+function openUI(type){
+    activeUI=type;
+    mcWindow.innerHTML='';
+    var topRow=document.createElement('div');
+    topRow.className='mc-row';
+
+    if(type==='inventory'){
+        var armorCol=document.createElement('div');
+        armorCol.className='mc-col';
+        for(var i=0;i<4;i++)armorCol.appendChild(createSlot('armor-'+i));
+        var spacer1=document.createElement('div');
+        spacer1.className='mc-spacer';
+        var craft2Grid=document.createElement('div');
+        craft2Grid.className='mc-grid-2x2';
+        for(var i=0;i<4;i++)craft2Grid.appendChild(createSlot('craft2-'+i));
+        var spacer2=document.createElement('div');
+        spacer2.className='mc-spacer';
+        var outCol=document.createElement('div');
+        outCol.className='mc-col';
+        var outSlot=createSlot('out2-0');
+        outSlot.classList.add('out-slot');
+        outCol.appendChild(outSlot);
+        topRow.appendChild(armorCol);
+        topRow.appendChild(spacer1);
+        topRow.appendChild(craft2Grid);
+        topRow.appendChild(spacer2);
+        topRow.appendChild(outCol);
+    } else if(type==='crafting'){
+        var craft3Grid=document.createElement('div');
+        craft3Grid.className='mc-grid-3x3';
+        for(var i=0;i<9;i++)craft3Grid.appendChild(createSlot('craft3-'+i));
+        var spacer=document.createElement('div');
+        spacer.className='mc-spacer';
+        var outCol=document.createElement('div');
+        outCol.className='mc-col';
+        var outSlot=createSlot('out3-0');
+        outSlot.classList.add('out-slot');
+        outCol.appendChild(outSlot);
+        topRow.appendChild(craft3Grid);
+        topRow.appendChild(spacer);
+        topRow.appendChild(outCol);
+    }
+    mcWindow.appendChild(topRow);
+
+    var mainInv=document.createElement('div');
+    mainInv.className='mc-main-inv';
+    for(var i=9;i<36;i++)mainInv.appendChild(createSlot('inv-'+i));
+    mcWindow.appendChild(mainInv);
+
+    var hbGap=document.createElement('div');
+    hbGap.style.height='6px';
+    mcWindow.appendChild(hbGap);
+    var hbGrid=document.createElement('div');
+    hbGrid.className='mc-row';
+    for(var i=0;i<9;i++)hbGrid.appendChild(createSlot('inv-'+i));
+    mcWindow.appendChild(hbGrid);
+
+    var help=document.createElement('div');
+    help.className='mc-help';
+    help.innerHTML='Shift+Click: Quick move | Right-drag: Spread 1/item | Dbl-Click: Collect all | 1-9: Move to hotbar | Q: Drop';
+    mcWindow.appendChild(help);
+
+    mcScreen.classList.add('open');
+    updateAllVisuals();
+}
+
+function closeUI(){
+    activeUI='none';
+    mcScreen.classList.remove('open');
+    if(draggingItem){
+        dropItemToWorld(draggingItem.type,draggingItem.count);
+        draggingItem=null;
+        dragGhostEl.style.display='none';
+    }
+}
+
+function getSlotData(id){
+    if(id.startsWith('inv-'))return inventory[parseInt(id.slice(4))];
+    if(id.startsWith('armor-'))return armor[parseInt(id.slice(6))];
+    if(id.startsWith('craft2-'))return craft2[parseInt(id.slice(7))];
+    if(id.startsWith('craft3-'))return craft3[parseInt(id.slice(7))];
+    if(id==='out2-0')return out2;
+    if(id==='out3-0')return out3;
+    return null;
+}
+
+function setSlotData(id,val){
+    if(id.startsWith('inv-'))inventory[parseInt(id.slice(4))]=val;
+    else if(id.startsWith('armor-'))armor[parseInt(id.slice(6))]=val;
+    else if(id.startsWith('craft2-'))craft2[parseInt(id.slice(7))]=val;
+    else if(id.startsWith('craft3-'))craft3[parseInt(id.slice(7))]=val;
+    else if(id==='out2-0')out2=val;
+    else if(id==='out3-0')out3=val;
+}
+
+function updateAllVisuals(){
+    for(var i=0;i<9;i++){
+        var slot=hotbarDiv.children[i];
+        slot.innerHTML='';
+        slot.classList.remove('selected');
+        if(i===selectedSlot)slot.classList.add('selected');
+        if(inventory[i])renderItemInSlot(slot,inventory[i]);
+    }
+    if(activeUI!=='none'){
+        var slots=mcWindow.querySelectorAll('.mc-slot');
+        slots.forEach(function(slot){
+            var id=slot.dataset.id;
+            slot.innerHTML='';
+            if(id.startsWith('inv-')){
+                var idx=parseInt(id.slice(4));
+                if(idx===selectedSlot)slot.classList.add('selected');
+                if(inventory[idx])renderItemInSlot(slot,inventory[idx]);
+            } else {
+                var data=getSlotData(id);
+                if(data)renderItemInSlot(slot,data);
+            }
+        });
+    }
+}
+
+function renderItemInSlot(slot,item){
+    var itemDiv=document.createElement('div');
+    itemDiv.className='mc-item';
+    itemDiv.style.background=getOreColor(item.type);
+    slot.appendChild(itemDiv);
+    // Tag label for tools/armor
+    var tag=ITEM_TAGS[item.type];
+    if(tag){
+        var tagDiv=document.createElement('div');
+        tagDiv.className='mc-tag';
+        tagDiv.innerText=tag;
+        slot.appendChild(tagDiv);
+    }
+    if(item.count>1){
+        var countDiv=document.createElement('div');
+        countDiv.className='mc-count';
+        countDiv.innerText=item.count;
+        slot.appendChild(countDiv);
+    }
+}
+
+// ===== SLOT INTERACTION =====
+function handleSlotMouseDown(e){
+    e.preventDefault();
+    e.stopPropagation();
+    var id=e.currentTarget.dataset.id;
+    var isRight=e.button===2;
+    var isShift=e.shiftKey;
+    var isOutput=id.startsWith('out');
+    var slotItem=getSlotData(id);
+
+    if(isRight)rightMouseDown=true;
+    dragVisited.add(id);
+
+    // Shift-click: quick move
+    if(isShift){
+        handleShiftClick(id,isOutput,slotItem);
+        return;
+    }
+
+    // Pick up output
+    if(isOutput&&slotItem&&!draggingItem){
+        draggingItem={type:slotItem.type,count:slotItem.count};
+        consumeGrid(id);
+        checkCrafting();
+        updateDragGhost(e);
+        updateAllVisuals();
+        return;
+    }
+
+    // Right click
+    if(isRight){
+        if(draggingItem){
+            // Place 1
+            if(!slotItem){
+                setSlotData(id,{type:draggingItem.type,count:1});
+                draggingItem.count--;
+                if(draggingItem.count<=0)draggingItem=null;
+            } else if(slotItem.type===draggingItem.type&&slotItem.count<64){
+                slotItem.count++;
+                draggingItem.count--;
+                if(draggingItem.count<=0)draggingItem=null;
+            }
+        } else if(slotItem&&slotItem.count>1){
+            // Pick up half
+            var half=Math.ceil(slotItem.count/2);
+            draggingItem={type:slotItem.type,count:half};
+            slotItem.count-=half;
+            if(slotItem.count<=0)setSlotData(id,null);
+        } else if(slotItem){
+            // Pick up 1
+            draggingItem={type:slotItem.type,count:1};
+            slotItem.count--;
+            if(slotItem.count<=0)setSlotData(id,null);
+        }
+    } else {
+        // Left click: Swap or merge
+        if(draggingItem){
+            if(!slotItem){
+                setSlotData(id,draggingItem);
+                draggingItem=null;
+            } else if(slotItem.type===draggingItem.type){
+                var tot=slotItem.count+draggingItem.count;
+                if(tot<=64){slotItem.count=tot;draggingItem=null;}
+                else{slotItem.count=64;draggingItem.count=tot-64;}
+            } else {
+                setSlotData(id,draggingItem);
+                draggingItem=slotItem;
+            }
+        } else {
+            if(slotItem){draggingItem=slotItem;setSlotData(id,null);}
+        }
+    }
+
+    updateDragGhost(e);
+    checkCrafting();
+    updateAllVisuals();
+}
+
+// Right-drag distribute: hold right mouse & move across slots to place 1 item per slot
+function handleSlotEnter(e){
+    var id=e.currentTarget.dataset.id;
+    hoveredSlotId=id;
+
+    // Tooltip
+    var slotItem=getSlotData(id);
+    if(slotItem){
+        tooltipEl.style.display='block';
+        tooltipEl.textContent=getItemName(slotItem.type)+(slotItem.count>1?' x'+slotItem.count:'');
+        var r=e.currentTarget.getBoundingClientRect();
+        tooltipEl.style.left=(r.right+8)+'px';
+        tooltipEl.style.top=(r.top)+'px';
+    } else {
+        tooltipEl.style.display='none';
+    }
+
+    // Right-drag distribute
+    if(rightMouseDown&&draggingItem&&!dragVisited.has(id)){
+        dragVisited.add(id);
+        if(!slotItem){
+            setSlotData(id,{type:draggingItem.type,count:1});
+            draggingItem.count--;
+            if(draggingItem.count<=0)draggingItem=null;
+        } else if(slotItem.type===draggingItem.type&&slotItem.count<64){
+            slotItem.count++;
+            draggingItem.count--;
+            if(draggingItem.count<=0)draggingItem=null;
+        }
+        checkCrafting();
+        updateAllVisuals();
+    }
+}
+
+function handleSlotLeave(){
+    tooltipEl.style.display='none';
+}
+
+// Double-click: collect all matching items from inventory onto cursor
+function handleSlotDblClick(e){
+    var id=e.currentTarget.dataset.id;
+    var slotItem=getSlotData(id);
+    if(!slotItem||draggingItem)return;
+    // Only collect from inventory slots (not craft/armor/output)
+    if(!id.startsWith('inv-'))return;
+    var targetType=slotItem.type;
+    var total=slotItem.count;
+    setSlotData(id,null);
+    for(var i=0;i<36;i++){
+        if(inventory[i]&&inventory[i].type===targetType){
+            total+=inventory[i].count;
+            inventory[i]=null;
+        }
+    }
+    draggingItem={type:targetType,count:total};
+    checkCrafting();
+    updateAllVisuals();
+}
+
+// Shift-click quick move
+function handleShiftClick(id,isOutput,slotItem){
+    // Shift-click on output: craft all possible
+    if(isOutput&&slotItem){
+        var resultType=slotItem.type;
+        var resultCount=slotItem.count||1;
+        var crafted=0;
+        while(crafted<64){
+            if(!canFitInInventory(resultType,resultCount))break;
+            // Check if recipe still matches
+            var hasMats=false;
+            if(id==='out2-0'){
+                for(var i=0;i<recipes.length;i++){
+                    var r=recipes[i];
+                    var bb=getRecipeBB(r);
+                    if(bb.h<=2&&bb.w<=2&&matchRecipe(craft2,2,r)){hasMats=true;break}
+                }
+            } else {
+                for(var i=0;i<recipes.length;i++){
+                    if(matchRecipe(craft3,3,recipes[i])){hasMats=true;break}
+                }
+            }
+            if(!hasMats)break;
+            consumeGrid(id);
+            addToInventory(resultType,resultCount);
+            checkCrafting();
+            crafted+=resultCount;
+        }
+        updateAllVisuals();
+        return;
+    }
+
+    if(!slotItem)return;
+    var isCraftSlot=id.startsWith('craft2-')||id.startsWith('craft3-');
+    var isInvSlot=id.startsWith('inv-');
+    var isArmorSlot=id.startsWith('armor-');
+
+    if(isCraftSlot){
+        // Move from craft grid to inventory
+        for(var i=0;i<36;i++){
+            if(!inventory[i]){inventory[i]={type:slotItem.type,count:slotItem.count};setSlotData(id,null);break}
+            if(inventory[i].type===slotItem.type&&inventory[i].count+slotItem.count<=64){inventory[i].count+=slotItem.count;setSlotData(id,null);break}
+        }
+    } else if(isInvSlot){
+        // Move from inventory to craft grid
+        var placed=false;
+        if(activeUI==='crafting'){
+            for(var i=0;i<9;i++){
+                if(!craft3[i]){craft3[i]={type:slotItem.type,count:slotItem.count};setSlotData(id,null);placed=true;break}
+            }
+        } else if(activeUI==='inventory'){
+            for(var i=0;i<4;i++){
+                if(!craft2[i]){craft2[i]={type:slotItem.type,count:slotItem.count};setSlotData(id,null);placed=true;break}
+            }
+        }
+        if(!placed&&activeUI==='inventory'){
+            for(var i=0;i<4;i++){
+                if(!armor[i]){armor[i]={type:slotItem.type,count:slotItem.count};setSlotData(id,null);placed=true;break}
+            }
+        }
+    } else if(isArmorSlot){
+        for(var i=0;i<36;i++){
+            if(!inventory[i]){inventory[i]={type:slotItem.type,count:slotItem.count};setSlotData(id,null);break}
+        }
+    }
+    checkCrafting();
+    updateAllVisuals();
+}
+
+function canFitInInventory(type,count){
+    for(var i=0;i<36;i++){
+        if(inventory[i]&&inventory[i].type===type&&inventory[i].count+count<=64)return true;
+    }
+    for(var i=0;i<36;i++){
+        if(!inventory[i])return true;
+    }
+    return false;
+}
+
+function addToInventory(type,count){
+    for(var i=0;i<36;i++){
+        if(inventory[i]&&inventory[i].type===type&&inventory[i].count+count<=64){inventory[i].count+=count;return true}
+    }
+    for(var i=0;i<36;i++){
+        if(!inventory[i]){inventory[i]={type:type,count:count};return true}
+    }
+    return false;
+}
+
+function consumeGrid(outId){
+    if(outId==='out2-0'){
+        for(var i=0;i<4;i++){if(craft2[i]){craft2[i].count--;if(craft2[i].count<=0)craft2[i]=null}}
+    } else if(outId==='out3-0'){
+        for(var i=0;i<9;i++){if(craft3[i]){craft3[i].count--;if(craft3[i].count<=0)craft3[i]=null}}
+    }
+}
+
+function addItemToInventory(type){
+    for(var i=0;i<36;i++){if(inventory[i]&&inventory[i].type===type&&inventory[i].count<64){inventory[i].count++;updateAllVisuals();return true}}
+    for(var i=0;i<36;i++){if(!inventory[i]){inventory[i]={type:type,count:1};updateAllVisuals();return true}}
+    return false;
+}
+
+function spawnDroppedItem(tx,ty,type){
+    droppedItems.push({x:tx*TILE_SIZE+TILE_SIZE/2,y:ty*TILE_SIZE+TILE_SIZE/2,vx:(Math.random()-0.5)*4,vy:(Math.random()-0.5)*4,type:type,count:1,life:0});
+}
+
+function checkCrafting(){
+    out2=null;out3=null;
+    for(var i=0;i<recipes.length;i++){
+        var r=recipes[i];
+        if(!out2){
+            var bb=getRecipeBB(r);
+            if(bb.h<=2&&bb.w<=2&&matchRecipe(craft2,2,r)){
+                out2={type:r.res,count:r.cnt||1};
+            }
+        }
+        if(!out3&&matchRecipe(craft3,3,r)){
+            out3={type:r.res,count:r.cnt||1};
+        }
+    }
+}
+
+function updateDragGhost(e){
+    if(draggingItem){
+        dragGhostEl.style.display='flex';
+        dragGhostEl.style.left=(e.clientX-12)+'px';
+        dragGhostEl.style.top=(e.clientY-12)+'px';
+        dragGhostEl.innerHTML='';
+        var itemDiv=document.createElement('div');
+        itemDiv.className='mc-item';
+        itemDiv.style.background=getOreColor(draggingItem.type);
+        itemDiv.style.transform='rotate(45deg) scale(1.2)';
+        dragGhostEl.appendChild(itemDiv);
+        if(draggingItem.count>1){
+            var countDiv=document.createElement('div');
+            countDiv.className='mc-count';
+            countDiv.innerText=draggingItem.count;
+            dragGhostEl.appendChild(countDiv);
+        }
+    } else {
+        dragGhostEl.style.display='none';
+    }
+}
+
+window.addEventListener('mousemove',function(e){if(draggingItem)updateDragGhost(e)});
+
+window.addEventListener('mouseup',function(e){
+    if(e.button===2)rightMouseDown=false;
+    dragVisited.clear();
+});
+
+mcScreen.addEventListener('mousedown',function(e){
+    if(e.target===mcScreen&&draggingItem){
+        dropItemToWorld(draggingItem.type,draggingItem.count);
+        draggingItem=null;
+        dragGhostEl.style.display='none';
+        updateAllVisuals();
+    }
+});
+
+window.addEventListener('wheel',function(e){
+    if(activeUI!=='none')return;
+    if(e.deltaY>0)selectedSlot=(selectedSlot+1)%9;
+    else selectedSlot=(selectedSlot-1+9)%9;
+    updateAllVisuals();
+});
+
+// ===== CAVE GENERATION =====
+function initMap(){
+    for(var x=0;x<MAP_W;x++){map[x]=[];for(var y=0;y<MAP_H;y++){
+        if(x===0||x===MAP_W-1||y===0||y===MAP_H-1){map[x][y]=0}
+        else if(Math.random()<INITIAL_WALL_PERCENT){
+            var or=Math.random();
+            if(or<IRON_SPAWN_CHANCE)map[x][y]=9;
+            else if(or<IRON_SPAWN_CHANCE+COAL_SPAWN_CHANCE)map[x][y]=8;
+            else map[x][y]=0;
+        } else map[x][y]=1;
+    }}
+}
+
+function countHoleNeighbors(x,y){var c=0;for(var i=-1;i<=1;i++)for(var j=-1;j<=1;j++){if(i===0&&j===0)continue;var nx=x+i,ny=y+j;if(nx<0||nx>=MAP_W||ny<0||ny>=MAP_H)continue;if(map[nx][ny]===1||map[nx][ny]===2)c++}return c}
+
+function runCellularAutomata(){
+    for(var step=0;step<CA_SIMULATION_STEPS;step++){
+        var nm=[];
+        for(var x=0;x<MAP_W;x++){nm[x]=[];for(var y=0;y<MAP_H;y++){
+            var hn=countHoleNeighbors(x,y);
+            if(map[x][y]===1||map[x][y]===2){if(hn<HOLE_SURVIVE_MIN_NEIGHBORS)nm[x][y]=0;else nm[x][y]=map[x][y]}
+            else{if(hn>=WALL_ERODE_MIN_NEIGHBORS)nm[x][y]=1;else nm[x][y]=map[x][y]}
+        }}
+        map=nm;
+    }
+}
+
+function bresenhamLine(x0,y0,x1,y1){var pts=[],dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx-dy,x=x0,y=y0;while(true){pts.push({x:x,y:y});if(x===x1&&y===y1)break;var e2=2*err;if(e2>-dy){err-=dy;x+=sx}if(e2<dx){err+=dx;y+=sy}}return pts}
+
+function connectNearbyWhiteTiles(){
+    var wt=[];for(var x=0;x<MAP_W;x++)for(var y=0;y<MAP_H;y++)if(map[x][y]===1)wt.push({x:x,y:y});
+    if(wt.length<2)return;
+    var it=Math.round((MAP_W*MAP_H)/WALL_CONNECT_DIVISOR);
+    for(var i=0;i<it;i++){if(wt.length<2)break;var t1=wt[Math.floor(Math.random()*wt.length)];var cands=[];
+        for(var dx=-WALL_CONNECT_MAX_DIST;dx<=WALL_CONNECT_MAX_DIST;dx++)for(var dy=-WALL_CONNECT_MAX_DIST;dy<=WALL_CONNECT_MAX_DIST;dy++){if(dx===0&&dy===0)continue;if(Math.hypot(dx,dy)>WALL_CONNECT_MAX_DIST)continue;var nx=t1.x+dx,ny=t1.y+dy;if(nx<0||nx>=MAP_W||ny<0||ny>=MAP_H)continue;if(map[nx][ny]!==1)continue;var line=bresenhamLine(t1.x,t1.y,nx,ny);var hasWall=false;for(var li=0;li<line.length;li++){if(map[line[li].x][line[li].y]===0){hasWall=true;break}}if(hasWall)cands.push({x:nx,y:ny,line:line})}
+        if(!cands.length)continue;var ch=cands[Math.floor(Math.random()*cands.length)];for(var ci=0;ci<ch.line.length;ci++){var p=ch.line[ci];if(map[p.x][p.y]===0){map[p.x][p.y]=1;wt.push({x:p.x,y:p.y})}}
+    }
+}
+
+function carveSpawnRoom(){
+    var cx=Math.floor(MAP_W/2),cy=Math.floor(MAP_H/2);
+    for(var x=cx-SPAWN_ROOM_RADIUS;x<=cx+SPAWN_ROOM_RADIUS;x++)for(var y=cy-SPAWN_ROOM_RADIUS;y<=cy+SPAWN_ROOM_RADIUS;y++)if(x>=0&&x<MAP_W&&y>=0&&y<MAP_H)map[x][y]=1;
+    var tx=cx-4,ty=cy;if(tx>=0&&tx<MAP_W&&ty>=0&&ty<MAP_H){map[tx][ty]=7;craftingTablePos={x:tx,y:ty}}
+    camera.x=(cx*TILE_SIZE)-(viewW()/2)+(TILE_SIZE/2);camera.y=(cy*TILE_SIZE)-(viewH()/2)+(TILE_SIZE/2);
+}
+
+function generateLakes(){
+    var n=Math.round((MAP_W*MAP_H)/LAKE_DENSITY_DIVISOR);
+    for(var i=0;i<n;i++){var ts=Math.floor(Math.random()*(LAKE_MAX_SIZE-LAKE_MIN_SIZE+1))+LAKE_MIN_SIZE;var sd=makeOrganicLakeShape(ts);var gs=sd.length,half=Math.floor(gs/2);if(MAP_W<=gs||MAP_H<=gs)continue;
+        for(var a=0;a<20;a++){var cx2=Math.floor(Math.random()*(MAP_W-gs))+half,cy2=Math.floor(Math.random()*(MAP_H-gs))+half;var sl=0,wt2=0;
+            for(var lx=0;lx<gs;lx++)for(var ly=0;ly<gs;ly++){if(sd[lx][ly]===1){var gx=cx2+lx-half,gy=cy2+ly-half;if(gx>=0&&gx<MAP_W&&gy>=0&&gy<MAP_H){if(map[gx][gy]===1)sl++;else if(map[gx][gy]===0||map[gx][gy]===8||map[gx][gy]===9)wt2++}}}
+            if(sl>=LAKE_MIN_SHORELINE&&wt2>=LAKE_MIN_WALL_TOUCH){for(var lx=0;lx<gs;lx++)for(var ly=0;ly<gs;ly++){if(sd[lx][ly]===1){var gx=cx2+lx-half,gy=cy2+ly-half;if(gx>=0&&gx<MAP_W&&gy>=0&&gy<MAP_H)map[gx][gy]=2}}break}
+        }
+    }
+}
+
+function makeOrganicLakeShape(ts){var s=LAKE_GRID_SIZE,g=elg(s),cx=s/2,cy=s/2,md=Math.hypot(cx,cy);for(var x=0;x<s;x++)for(var y=0;y<s;y++){var d=Math.hypot(x-cx,y-cy);g[x][y]=Math.random()<(0.55*(1-d/md)+0.05)?1:0}for(var st=0;st<4;st++){var ng=elg(s);for(var x=0;x<s;x++)for(var y=0;y<s;y++){var nb=cln(g,x,y);if(g[x][y]===1)ng[x][y]=nb<3?0:1;else ng[x][y]=nb>5?1:0}g=ng}g=imb(g);g=rls(g,ts);return g}
+
+function countWaterNeighbors(x,y){var c=0;for(var i=-1;i<=1;i++)for(var j=-1;j<=1;j++){if(i===0&&j===0)continue;var nx=x+i,ny=y+j;if(nx<0||nx>=MAP_W||ny<0||ny>=MAP_H)continue;if(map[nx][ny]===2)c++}return c}
+
+function engulfSurroundedWhiteTiles(){var tc=[];for(var x=0;x<MAP_W;x++)for(var y=0;y<MAP_H;y++)if(map[x][y]===1&&countWaterNeighbors(x,y)>=WATER_ENGULF_MIN_NEIGHBORS)tc.push({x:x,y:y});for(var i=0;i<tc.length;i++)map[tc[i].x][tc[i].y]=2}
+
+function smoothWaterEdges(){for(var st=0;st<WATER_SMOOTH_STEPS;st++){var ch=[];for(var x=0;x<MAP_W;x++)for(var y=0;y<MAP_H;y++){if(map[x][y]===0||map[x][y]===8||map[x][y]===9)continue;var wn=countWaterNeighbors(x,y);if(map[x][y]===1&&wn>=5)ch.push({x:x,y:y,val:2});else if(map[x][y]===2&&wn<=2)ch.push({x:x,y:y,val:1})}for(var i=0;i<ch.length;i++)map[ch[i].x][ch[i].y]=ch[i].val}}
+
+function generateOre(){var n=Math.round((MAP_W*MAP_H)/ORE_DENSITY_DIVISOR),sc=MAP_W/2,sy2=MAP_H/2;for(var i=0;i<n;i++){for(var a=0;a<20;a++){var x=Math.floor(Math.random()*(MAP_W-3))+1,y=Math.floor(Math.random()*(MAP_H-3))+1,wt=0;for(var px=x-1;px<=x+2;px++)for(var py=y-1;py<=y+2;py++){if(px>=x&&px<=x+1&&py>=y&&py<=y+1)continue;if(px<0||px>=MAP_W||py<0||py>=MAP_H)continue;if(map[px][py]===1)wt++}if(wt>=ORE_MIN_WHITE_TOUCH){var d=Math.hypot((x+0.5)-sc,(y+0.5)-sy2),ov;if(d<=100)ov=3;else if(d<=200)ov=4;else if(d<=300)ov=5;else ov=6;map[x][y]=ov;map[x+1][y]=ov;map[x][y+1]=ov;map[x+1][y+1]=ov;break}}}}
+
+function clusterOreVeins(){for(var p=0;p<ORE_VEIN_PASSES;p++){var eo=[];for(var x=0;x<MAP_W;x++)for(var y=0;y<MAP_H;y++)if(map[x][y]===8||map[x][y]===9)eo.push({x:x,y:y,type:map[x][y]});for(var ei=0;ei<eo.length;ei++){var o=eo[ei];if(Math.random()>=ORE_VEIN_SPREAD_CHANCE)continue;var ds=[[-1,-1],[0,-1],[1,-1],[-1,0],[1,0],[-1,1],[0,1],[1,1]];ds.sort(function(){return Math.random()-0.5});for(var d=0;d<ds.length;d++){var nx=o.x+ds[d][0],ny=o.y+ds[d][1];if(nx<0||nx>=MAP_W||ny<0||ny>=MAP_H)continue;if(map[nx][ny]!==0)continue;map[nx][ny]=(Math.random()<ORE_VEIN_MIX_CHANCE)?(o.type===8?9:8):o.type;break}}}}
+
+function generateWood(){var n=Math.round((MAP_W*MAP_H)/WOOD_DENSITY_DIVISOR);for(var i=0;i<n;i++){var sx,sy,found=false;for(var a=0;a<20&&!found;a++){sx=Math.floor(Math.random()*MAP_W);sy=Math.floor(Math.random()*MAP_H);if(sx>=0&&sx<MAP_W&&sy>=0&&sy<MAP_H&&map[sx][sy]===1)found=true}if(!found)continue;map[sx][sy]=20;var placed=[{x:sx,y:sy}];var cs=WOOD_CLUSTER_MIN+Math.floor(Math.random()*(WOOD_CLUSTER_MAX-WOOD_CLUSTER_MIN+1));for(var c=1;c<cs;c++){var b=placed[Math.floor(Math.random()*placed.length)];var nx=b.x+Math.floor(Math.random()*3)-1,ny=b.y+Math.floor(Math.random()*3)-1;if(nx>=0&&nx<MAP_W&&ny>=0&&ny<MAP_H&&map[nx][ny]===1){map[nx][ny]=20;placed.push({x:nx,y:ny})}}}}
+
+// Local grid helpers
+function elg(s){var g=[];for(var i=0;i<s;i++){g[i]=[];for(var j=0;j<s;j++)g[i][j]=0}return g}
+function cln(g,x,y){var s=g.length,c=0;for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){if(dx===0&&dy===0)continue;var nx=x+dx,ny=y+dy;if(nx>=0&&nx<s&&ny>=0&&ny<s&&g[nx][ny]===1)c++}return c}
+function ffl(g,sx,sy){var s=g.length;if(g[sx][sy]!==1)return[];var v=[],q=[{x:sx,y:sy}],r=[];for(var i=0;i<s;i++){v[i]=[];for(var j=0;j<s;j++)v[i][j]=false}v[sx][sy]=true;while(q.length){var c=q.shift();r.push(c);for(var dx=-1;dx<=1;dx++)for(var dy=-1;dy<=1;dy++){if(dx===0&&dy===0)continue;var nx=c.x+dx,ny=c.y+dy;if(nx>=0&&nx<s&&ny>=0&&ny<s&&g[nx][ny]===1&&!v[nx][ny]){v[nx][ny]=true;q.push({x:nx,y:ny})}}}return r}
+function gbb(t,s){var mX=s,MX=0,mY=s,MY=0;for(var i=0;i<t.length;i++){if(t[i].x<mX)mX=t[i].x;if(t[i].x>MX)MX=t[i].x;if(t[i].y<mY)mY=t[i].y;if(t[i].y>MY)MY=t[i].y}return{minX:mX,maxX:MX,minY:mY,maxY:MY}}
+function clo(g){var s=g.length,c=0;for(var x=0;x<s;x++)for(var y=0;y<s;y++)if(g[x][y]===1)c++;return c}
+function glb(g){var s=g.length,b=[];for(var x=0;x<s;x++)for(var y=0;y<s;y++){if(g[x][y]===0){for(var dx=-1;dx<=1;dx++){var found=false;for(var dy=-1;dy<=1;dy++){var nx=x+dx,ny=y+dy;if(nx>=0&&nx<s&&ny>=0&&ny<s&&g[nx][ny]===1){found=true;break}}if(found){b.push({x:x,y:y});break}}}}return b}
+
+function imb(g){var s=g.length,cx=s/2,cy=s/2,best=null,bd=1e9;for(var x=0;x<s;x++)for(var y=0;y<s;y++)if(g[x][y]===1){var d=Math.hypot(x-cx,y-cy);if(d<bd){bd=d;best={x:x,y:y}}}if(!best)return g;var mb=ffl(g,best.x,best.y),cl=elg(s);for(var i=0;i<mb.length;i++)cl[mb[i].x][mb[i].y]=1;var bb=gbb(mb,s);for(var x=bb.minX;x<=bb.maxX;x++)for(var y=bb.minY;y<=bb.maxY;y++)if(cl[x][y]===0&&cln(cl,x,y)>=4)cl[x][y]=1;return cl}
+
+function rls(g,ts){var cs=clo(g),s=g.length;if(cs<ts){while(cs<ts){var b=glb(g);if(!b.length)break;var p=b[Math.floor(Math.random()*b.length)];g[p.x][p.y]=1;cs++}}else if(cs>ts){var cx=s/2,cy=s/2,ao=[];for(var x=0;x<s;x++)for(var y=0;y<s;y++)if(g[x][y]===1)ao.push({x:x,y:y});ao.sort(function(a,b2){return Math.hypot(b2.x-cx,b2.y-cy)-Math.hypot(a.x-cx,a.y-cy)});while(cs>ts&&ao.length){var rm=ao.shift();g[rm.x][rm.y]=0;cs--}}return g}
+
+function tileAtWorld(wx,wy){var tx=Math.floor(wx/TILE_SIZE),ty=Math.floor(wy/TILE_SIZE);if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H)return 0;return map[tx][ty]}
+
+// ===== GAME UPDATE =====
+function update(){
+    if(generating)return;
+
+    if(keys['e']&&!ePrev){if(activeUI==='inventory')closeUI();else if(activeUI==='none')openUI('inventory')}
+    ePrev=keys['e'];
+    if(keys['v']&&!vPrev){mode=(mode==='ghost')?'human':'ghost'}
+    vPrev=keys['v'];
+
+    var speed=CAMERA_SPEED;
+    if(keys['shift'])speed=CAMERA_SPRINT_SPEED;
+    var dx=0,dy=0;
+    if(keys['w']||keys['arrowup'])dy-=speed;
+    if(keys['s']||keys['arrowdown'])dy+=speed;
+    if(keys['a']||keys['arrowleft'])dx-=speed;
+    if(keys['d']||keys['arrowright'])dx+=speed;
+
+    var playerWorldX=camera.x+viewW()/2;
+    var playerWorldY=camera.y+viewH()/2;
+
+    if(mode==='ghost'){camera.x+=dx;camera.y+=dy}
+    else{
+        if(dx!==0||dy!==0){
+            var tile=tileAtWorld(playerWorldX+dx,playerWorldY+dy);
+            var adx=dx,ady=dy;
+            if(tile===2){adx=dx*WATER_SPEED_MULT;ady=dy*WATER_SPEED_MULT}
+            else if(tile===0||tile>=3){
+                adx=dx*MINING_SPEED_MULT;ady=dy*MINING_SPEED_MULT;
+                var tx=Math.floor((playerWorldX+dx)/TILE_SIZE),ty=Math.floor((playerWorldY+dy)/TILE_SIZE);
+                if(tx>=0&&tx<MAP_W&&ty>=0&&ty<MAP_H){
+                    if(map[tx][ty]!==7){
+                        if((tile>=3&&tile<=6)||tile===8||tile===9||tile===20)spawnDroppedItem(tx,ty,tile);
+                        map[tx][ty]=1;
+                    }
+                }
+            }
+            camera.x+=adx;camera.y+=ady;
+        }
+    }
+
+    camera.x=Math.max(0,Math.min(camera.x,MAP_W*TILE_SIZE-viewW()));
+    camera.y=Math.max(0,Math.min(camera.y,MAP_H*TILE_SIZE-viewH()));
+
+    var curWX=camera.x+viewW()/2,curWY=camera.y+viewH()/2;
+    var pTx=Math.floor(curWX/TILE_SIZE),pTy=Math.floor(curWY/TILE_SIZE);
+    var distToTable=Math.hypot(pTx-craftingTablePos.x,pTy-craftingTablePos.y);
+    nearTable=distToTable<3;
+
+    if(keys['c']&&!cPrev){
+        if(activeUI==='crafting')closeUI();
+        else if(nearTable){if(activeUI==='inventory')closeUI();openUI('crafting')}
+    }
+    cPrev=keys['c'];
+
+    for(var i=droppedItems.length-1;i>=0;i--){
+        var item=droppedItems[i];
+        item.x+=item.vx;item.y+=item.vy;
+        item.vx*=0.9;item.vy*=0.9;
+        item.life=Math.min(item.life+0.1,1);
+        var dist=Math.hypot(item.x-curWX,item.y-curWY);
+        if(dist<30){if(addItemToInventory(item.type))droppedItems.splice(i,1)}
+    }
+
+    var posText='X:'+Math.floor(camera.x/TILE_SIZE)+' Y:'+Math.floor(camera.y/TILE_SIZE)+' Mode:'+mode;
+    if(nearTable)posText+=' | Press C to Craft';
+    document.getElementById('pos').innerText=posText;
+}
+
+// ===== DRAW =====
+function draw(){
+    if(generating)return;
+    ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='#000';ctx.fillRect(0,0,canvas.width,canvas.height);
+    var zs=zoomScale();ctx.setTransform(zs,0,0,zs,0,0);
+
+    var startX=Math.floor(camera.x/TILE_SIZE),startY=Math.floor(camera.y/TILE_SIZE);
+    var endX=Math.ceil((camera.x+viewW())/TILE_SIZE),endY=Math.ceil((camera.y+viewH())/TILE_SIZE);
+    startX=Math.max(0,startX);startY=Math.max(0,startY);endX=Math.min(MAP_W,endX);endY=Math.min(MAP_H,endY);
+
+    for(var x=startX;x<endX;x++){
+        for(var y=startY;y<endY;y++){
+            var sx=x*TILE_SIZE-camera.x,sy=y*TILE_SIZE-camera.y;
+            var v=map[x][y];
+            if(v===1){ctx.fillStyle='#ffffff';ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE)}
+            else if(v===2){ctx.fillStyle='#00bfff';ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE)}
+            else if(v===0){ctx.fillStyle='#4b3621';ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE)}
+            else if(v===8||v===9||v===20){ctx.fillStyle=getOreColor(v);ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE)}
+            else if(v>=3&&v<=6){ctx.fillStyle=getOreColor(v);ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE)}
+            else if(v===7){
+                ctx.fillStyle='#8B4513';ctx.fillRect(sx,sy,TILE_SIZE,TILE_SIZE);
+                ctx.fillStyle='#D2691E';ctx.fillRect(sx,sy,TILE_SIZE,8);
+                ctx.fillStyle='#A0522D';ctx.fillRect(sx+8,sy+8,16,16);
+            }
+        }
+    }
+
+    for(var i=0;i<droppedItems.length;i++){
+        var item=droppedItems[i];
+        var screenX=item.x-camera.x,screenY=item.y-camera.y;
+        if(screenX<-20||screenX>viewW()+20||screenY<-20||screenY>viewH()+20)continue;
+        var size=12*item.life;
+        ctx.save();ctx.translate(screenX,screenY);ctx.rotate(Math.PI/4);
+        ctx.fillStyle=getOreColor(item.type);ctx.fillRect(-size/2,-size/2,size,size);
+        ctx.strokeStyle='#000';ctx.lineWidth=2;ctx.strokeRect(-size/2,-size/2,size,size);
+        ctx.restore();
+    }
+
+    var cx=viewW()/2,cy2=viewH()/2;
+    ctx.fillStyle='red';ctx.beginPath();ctx.arc(cx,cy2,4,0,Math.PI*2);ctx.fill();
+}
+
+function gameLoop(){update();draw();requestAnimationFrame(gameLoop)}
+
+setTimeout(function(){
+    initMap();runCellularAutomata();clusterOreVeins();connectNearbyWhiteTiles();carveSpawnRoom();
+    generateLakes();engulfSurroundedWhiteTiles();smoothWaterEdges();generateOre();generateWood();
+    generating=false;
+    document.getElementById('loading').style.display='none';
+    updateAllVisuals();
+    gameLoop();
+},50);
 
 </script>
 </body>
