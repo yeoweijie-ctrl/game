@@ -34,7 +34,7 @@ canvas{display:block}
 </head>
 <body>
 <div id="loading">Generating World...</div>
-<div id="ui"><div>WASD:Move V:Ghost E:Inv C:Craft | Shift+Click:QuickMove | L/R-Drag:Spread | DblClick:Collect | 1-9:Hotbar Q:Drop</div><div id="pos"></div></div>
+<div id="ui"><div>WASD:Move V:Ghost E:Inv C:Craft F:Smelt | Shift+Click:QuickMove | L/R-Drag:Spread | 1-9:Hotbar Q:Drop</div><div id="pos"></div></div>
 <div id="mc-hotbar"></div>
 <div id="mc-screen"><div id="mc-window"></div></div>
 <div id="drag-ghost"></div>
@@ -53,7 +53,6 @@ var LAKE_MIN_SHORELINE=8,LAKE_MIN_WALL_TOUCH=16,LAKE_GRID_SIZE=24;
 var WATER_ENGULF_MIN_NEIGHBORS=8,WATER_SMOOTH_STEPS=2;
 
 // ===== ITEMS =====
-// Map: 0=Stone 1=Air 2=Water 3=Dirt 8=CoalOre 9=IronOre 10=DiamondOre 20=Wood
 var IN={},IC={},IT={};
 function di(id,n,c,t){IN[id]=n;IC[id]=c;if(t)IT[id]=t}
 IN[0]='Stone';
@@ -99,16 +98,16 @@ di(45,'Diamond Helmet','#00BCD4','DHlm');
 di(46,'Diamond Chestplate','#0097A7','DCpl');
 di(47,'Diamond Leggings','#00838F','DLgs');
 di(48,'Diamond Boots','#006064','DBts');
+di(51,'Raw Iron','#C8A88A','RIr');
 
 function gc(t){return IC[t]||'#fff'}
 function gn(t){return IN[t]||'Unknown'}
 function gtl(t){if(!t)return 0;if(t===22)return 1;if(t===27)return 2;if(t===32)return 3;if(t===37)return 4;return 0;}
 function gtn(l){if(l>=4)return 'Diamond Pick';if(l>=3)return 'Iron Pick';if(l>=2)return 'Stone Pick';if(l>=1)return 'Wooden Pick';return 'Hand';}
 function gbl(b){if(b===20||b===3)return 0;if(b===8||b===0)return 1;if(b===9)return 2;if(b===10)return 3;return 0;}
-function gmd(b){if(b===0)return 13;return b;}
+function gmd(b){if(b===0)return 13;if(b===9)return 51;return b;}
 
-// ===== RECIPES =====
-var W=20,S=21,P=4,I=9,C=8,B=13,D=10;
+var W=20,S=21,P=4,I=9,C=8,B=13,D=10,RI=51;
 var recipes=[
   {size:2,pat:[W,0,0,0],res:4,cnt:4},
   {size:2,pat:[P,P,P,P],res:7,cnt:1},
@@ -149,7 +148,6 @@ var recipes=[
   {size:3,pat:[0,I,0,0,0,C,0,0,0],res:44}
 ];
 
-// ===== RECIPE MATCHING =====
 function mr(gi,gs,rec){
   var g2=[];for(var r=0;r<gs;r++){g2[r]=[];for(var c=0;c<gs;c++){var it=gi[r*gs+c];g2[r][c]=it?it.type:0;}}
   var ps=rec.size,pp=rec.pat,p2=[];for(var r=0;r<ps;r++){p2[r]=[];for(var c=0;c<ps;c++){p2[r][c]=pp[r*ps+c];}}
@@ -164,17 +162,63 @@ function mr(gi,gs,rec){
 }
 function rbb(r){var s=r.size,p=r.pat,a=s,b=-1,e=s,f=-1;for(var w=0;w<s;w++){for(var c=0;c<s;c++){if(p[w*s+c]!==0){if(w<a)a=w;if(w>b)b=w;if(c<e)e=c;if(c>f)f=c;}}}return{h:b===-1?0:b-a+1,w:f===-1?0:f-e+1};}
 
-// ===== ENGINE =====
 var canvas=document.getElementById('gameCanvas'),ctx=canvas.getContext('2d');
 var map=[],generating=true,camera={x:0,y:0},keys={},mode='ghost';
-var eP=false,vP=false,cP=false,mfT=0,mfX='';
+var eP=false,vP=false,cP=false,fP=false,mfT=0,mfX='';
 var inv=new Array(36).fill(null),arm=new Array(4).fill(null);
 var c2=new Array(4).fill(null),c3=new Array(9).fill(null);
 var o2=null,o3=null,ss=0,aUI='none',di2=[];
 var dI=null,rMD=false,lMD=false,lDD=false;
 var dV=new Set(),hS=null;
 
-window.addEventListener('keydown',function(e){keys[e.key.toLowerCase()]=true;if(['e','c','q'].indexOf(e.key.toLowerCase())>=0)e.preventDefault();hHK(e);});
+// ===== BIOME SYSTEM =====
+var biomeCenters=[];
+function initBiomes(){
+  biomeCenters=[];
+  var n=12;
+  for(var i=0;i<n;i++){
+    biomeCenters.push({
+      x:Math.floor(Math.random()*MAP_W),
+      y:Math.floor(Math.random()*MAP_H),
+      type:i%2===0?'stone':'wood'
+    });
+  }
+  // Ensure spawn area is wood biome
+  biomeCenters.push({x:Math.floor(MAP_W/2),y:Math.floor(MAP_H/2),type:'wood'});
+}
+function getBiome(x,y){
+  var md=1e9,bt='wood';
+  for(var i=0;i<biomeCenters.length;i++){
+    var d=Math.hypot(x-biomeCenters[i].x,y-biomeCenters[i].y);
+    if(d<md){md=d;bt=biomeCenters[i].type;}
+  }
+  return bt;
+}
+function applyBiomes(){
+  for(var x=2;x<MAP_W-2;x++){for(var y=2;y<MAP_H-2;y++){
+    var b=getBiome(x,y);
+    if(b==='stone'){
+      // Densify: fill some open floor near walls
+      if(map[x][y]===1){
+        var wn=0;for(var dx=-1;dx<=1;dx++){for(var dy=-1;dy<=1;dy++){var nx=x+dx,ny=y+dy;if(nx>=0&&nx<MAP_W&&ny>=0&&ny<MAP_H&&(map[nx][ny]===0||map[nx][ny]===8||map[nx][ny]===9||map[nx][ny]===10))wn++;}}
+        if(wn>=3&&Math.random()<0.4)map[x][y]=0;
+      }
+      // Remove surface features
+      if(map[x][y]===20||map[x][y]===3)map[x][y]=0;
+      if(map[x][y]===2)map[x][y]=1;
+    }else{
+      // Open up: remove some walls near open floor
+      if(map[x][y]===0){
+        var fn=0;for(var dx=-1;dx<=1;dx++){for(var dy=-1;dy<=1;dy++){var nx=x+dx,ny=y+dy;if(nx>=0&&nx<MAP_W&&ny>=0&&ny<MAP_H&&map[nx][ny]===1)fn++;}}
+        if(fn>=3&&Math.random()<0.2)map[x][y]=1;
+      }
+      // Remove ores
+      if(map[x][y]===8||map[x][y]===9||map[x][y]===10)map[x][y]=0;
+    }
+  }}
+}
+
+window.addEventListener('keydown',function(e){keys[e.key.toLowerCase()]=true;if(['e','c','q','f'].indexOf(e.key.toLowerCase())>=0)e.preventDefault();hHK(e);});
 window.addEventListener('keyup',function(e){keys[e.key.toLowerCase()]=false;});
 window.addEventListener('contextmenu',function(e){e.preventDefault();});
 
@@ -222,7 +266,7 @@ function oUI(t){
   var mi=document.createElement('div');mi.className='mc-main-inv';for(var i=9;i<36;i++)mi.appendChild(mkS('inv-'+i));mW.appendChild(mi);
   var g=document.createElement('div');g.style.height='6px';mW.appendChild(g);
   var hr=document.createElement('div');hr.className='mc-row';for(var i=0;i<9;i++)hr.appendChild(mkS('inv-'+i));mW.appendChild(hr);
-  var h=document.createElement('div');h.className='mc-help';h.innerHTML='Shift+Click:QuickMove | L/R-Drag:Spread | DblClick:Collect | 1-9:Hotbar | Q:Drop';mW.appendChild(h);
+  var h=document.createElement('div');h.className='mc-help';h.innerHTML='Shift+Click:QuickMove | L/R-Drag:Spread | DblClick:Collect | 1-9:Hotbar | Q:Drop | F:Smelt';mW.appendChild(h);
   mS.classList.add('open');uV();
 }
 function cUI(){aUI='none';mS.classList.remove('open');if(dI){dW(dI.type,dI.count);dI=null;dG.style.display='none';}}
@@ -358,11 +402,23 @@ function imb(g){var s=g.length,cx=s/2,cy=s/2,best=null,bd=1e9;for(var x=0;x<s;x+
 function rls(g,ts){var cs=clo(g),s=g.length;if(cs<ts){while(cs<ts){var b=glb(g);if(!b.length)break;var p=b[Math.floor(Math.random()*b.length)];g[p.x][p.y]=1;cs++;}}else if(cs>ts){var cx=s/2,cy=s/2,ao=[];for(var x=0;x<s;x++){for(var y=0;y<s;y++){if(g[x][y]===1)ao.push({x:x,y:y});}}ao.sort(function(a,b2){return Math.hypot(b2.x-cx,b2.y-cy)-Math.hypot(a.x-cx,a.y-cy);});while(cs>ts&&ao.length){var rm=ao.shift();g[rm.x][rm.y]=0;cs--;}}return g;}
 function tAW(wx,wy){var tx=Math.floor(wx/TILE_SIZE),ty=Math.floor(wy/TILE_SIZE);if(tx<0||tx>=MAP_W||ty<0||ty>=MAP_H)return 0;return map[tx][ty];}
 
+// ===== SMELTING (F): needs a Furnace in inventory; 1 Coal + 1 Raw Iron -> 1 Iron Ingot =====
+function cntItem(t){var n=0;for(var i=0;i<36;i++){if(inv[i]&&inv[i].type===t)n+=inv[i].count;}return n;}
+function takeItem(t,n){for(var i=0;i<36&&n>0;i++){if(inv[i]&&inv[i].type===t){var k=Math.min(n,inv[i].count);inv[i].count-=k;n-=k;if(inv[i].count<=0)inv[i]=null;}}}
+function smelt(){
+  if(cntItem(19)<1){mfX='Need a Furnace in inventory to smelt!';mfT=90;return;}
+  var n=Math.min(cntItem(RI),cntItem(C),64);
+  if(n<1){mfX=cntItem(RI)<1?'No Raw Iron to smelt!':'Need Coal as fuel!';mfT=90;return;}
+  takeItem(RI,n);takeItem(C,n);aI(I,n);uV();
+  mfX='Smelted '+n+' Iron Ingot'+(n>1?'s':'');mfT=90;
+}
+
 // ===== UPDATE =====
 function update(){
   if(generating)return;
   if(keys['e']&&!eP){if(aUI==='inventory')cUI();else if(aUI==='none')oUI('inventory');}eP=keys['e'];
   if(keys['v']&&!vP){mode=(mode==='ghost')?'human':'ghost';}vP=keys['v'];
+  if(keys['f']&&!fP){smelt();}fP=keys['f'];
   var sp=CAMERA_SPEED;if(keys['shift'])sp=CAMERA_SPRINT_SPEED;
   var dx=0,dy=0;
   if(keys['w']||keys['arrowup'])dy-=sp;if(keys['s']||keys['arrowdown'])dy+=sp;if(keys['a']||keys['arrowleft'])dx-=sp;if(keys['d']||keys['arrowright'])dx+=sp;
@@ -420,7 +476,7 @@ function draw(){
 function gameLoop(){update();draw();requestAnimationFrame(gameLoop);}
 
 setTimeout(function(){
-  initMap();rCA();cWT();cSR();pDirt();gLk();eSW();sWE();pOre();gFor();
+  initMap();rCA();cWT();cSR();pDirt();gLk();eSW();sWE();pOre();gFor();initBiomes();applyBiomes();
   inv[0]={type:7,count:1};
   generating=false;
   document.getElementById('loading').style.display='none';
