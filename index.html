@@ -196,6 +196,68 @@
    const ctx = canvas.getContext('2d');
 
 
+   // ==========================================
+   // 🧱 DIRT WALL AUTOTILING
+   // ==========================================
+   // dirt_tiles.png = tile_01..tile_21 side by side (21 x 32px wide, 32px tall).
+   // Key = Up,Left,Down,Right neighbor is a wall? (1 = block, 0 = no block).
+   // Values = tile numbers; more than one = variants (picked per position, stable).
+   // Left/Right match the tile art (e.g. tile_03 has its wall on the left = 0100).
+   const DIRT_TILES = {
+       '0000': [1],
+       '0010': [2, 11],
+       '0001': [4, 15],
+       '0100': [3, 18],
+       '0110': [7],
+       '0011': [5],
+       '0101': [8, 10],
+       '0111': [6],
+       '1010': [9],
+       '1000': [17],
+       '1001': [19],
+       '1100': [21],
+       '1101': [20],
+       '1110': [12],
+       '1011': [14],
+       '1111': [13, 16]
+   };
+   const DIRT_SHEET_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAqAAAAAgCAYAAADNE8o0AAADLklEQVR4nO3dP09TURQA8EtDIikDYXAhqXv9FCzG0d1vQeJCWNgc3YyTgwNxdXTjA5g4speEpUPjIIGpDlIspfgn2HOent9vISSF9+659517evt639rh4WG7j93d3Xv9/fHx8Y3fzz5+mLbW2nDQv9f/XXRyet5aa+35y1drPzv+n/rb7c8+/qriX11Xx9/R/t40q69PTs/bztNna79+5d3+lfF/V/9/fn0w/asH4o98efwkdfxV73/xr209+wRmPr1/N93Z3lpZ4TP7v0f7e9OzyZf24s3bew38/82q41+d8ddt8g9ArF72CbT2fdUhqvgZDvptZ3urHe3veedzJTL+1Rl/3SP/AMTrRAHaWuxHvgqt28Qkjlh3j/wDECu9AJ3dc5XBKkRu/Ksz/vLJPwA50gvQ1nJWBKxC/CAW8cS8O+QfgHidKEDJs7lxmX0KZYk9AFUpQAEACKUALcw9aLV1of/dgwx1uf5rW1vciH7VA2JxI+bsjbCj/Woj8ugLcnPjsj16uB15SK6MxpP29eJB9mmk3Y+Ycf0tk9l+94LmWtwIPTr/Vu//6BzgQRDdcr0R/dnHD9PhoN+2VnxBfH59MD05Pb81ELJEJ4C72h8V/0WjsfsQM2VPQNlFYPX20w1Z+be6rsy/5FjPePTicNDvxMd/WZa1P3siBqjGo4frmZ9/9XuuXmu2Ickw3/7qsQDIIv/Wo8+7oZfZEdUHwXDQLx8DgCzyb136Pp9vwQMAEEoBCgBAqN5oPEk7eOaxu2A0npSPAUCW6vm38vxv/s01Gk+sgAIAEKvXWs5eeNX335tvf/VYAGSpnn8rzv/m31yzmF+vgEYuRVdf9l7W/uoxAchSPf9Wmv/Nv7nmY33jI/iIdwLV3238rP3VYwOQpXr+rTD/m39zLcZ4ffEFq3w+9ebGZWst/9nX8yIH3e+0f9Xx/3rx4MZPckWPv9v9n3s9zsb74rlBhlXm32W6thdl9Pwfef1nz7/VLYu/LyEBABBKAQoAQCgFKAAAoRSgAACEUoACABBKAVqcb/zlEXsAqlKAFmcrpjxiD0BVClAAAEIpQAEACKUABQAg1Det7bfzA4sTiAAAAABJRU5ErkJggg==';  // embedded copy of dirt_tiles.png, no extra file needed
+   const dirtSheet = new Image();
+   let dirtSheetReady = false;
+   dirtSheet.onload = () => { dirtSheetReady = true; };
+   dirtSheet.src = DIRT_SHEET_URL;
+
+   // Tiles that count as "wall" for dirt neighbours (plain dirt, coal, iron, colored ores).
+   // Out-of-bounds counts as wall so the map edge doesn't get a rim.
+   function isDirtBlock(x, y) {
+       if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) return true;
+       const v = map[x][y];
+       return v === 0 || v === 8 || v === 9 || (v >= 3 && v <= 6);
+   }
+
+   // Returns the 1-based tile number (1..21) for the dirt wall at x,y.
+   function getDirtTileNumber(x, y) {
+       const key = (isDirtBlock(x, y - 1) ? '1' : '0') +   // up
+                   (isDirtBlock(x - 1, y) ? '1' : '0') +   // left
+                   (isDirtBlock(x, y + 1) ? '1' : '0') +   // down
+                   (isDirtBlock(x + 1, y) ? '1' : '0');    // right
+       const list = DIRT_TILES[key];
+       if (list.length === 1) return list[0];
+       const h = ((x * 73856093) ^ (y * 19349663)) >>> 0;  // stable per-tile "random"
+       return list[h % list.length];
+   }
+
+   function drawDirtTile(x, y, sx, sy) {
+       if (!dirtSheetReady) {                      // fallback until the image loads
+           ctx.fillStyle = '#4b3621'; ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+           return;
+       }
+       ctx.fillStyle = '#fff'; ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);   // white behind the transparent parts
+       const n = getDirtTileNumber(x, y);
+       ctx.drawImage(dirtSheet, (n - 1) * 32, 0, 32, 32, sx, sy, TILE_SIZE, TILE_SIZE);
+   }
+
+
    let map = [];
    let generating = true;
 
@@ -1099,6 +1161,7 @@
    function draw() {
        if (generating) return;
        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+       ctx.imageSmoothingEnabled = false;   // keep pixel art crisp
 
 
        let startX = Math.floor(camera.x / TILE_SIZE); let startY = Math.floor(camera.y / TILE_SIZE);
@@ -1113,7 +1176,7 @@
                } else if (map[x][y] === 2) {
                    ctx.fillStyle = '#00bfff'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
                } else if (map[x][y] === 0) {
-                   ctx.fillStyle = '#4b3621'; ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
+                   drawDirtTile(x, y, Math.floor(x * TILE_SIZE - camera.x), Math.floor(y * TILE_SIZE - camera.y));
                } else if (map[x][y] === 8 || map[x][y] === 9 || map[x][y] === 20) {
                    ctx.fillStyle = getOreColor(map[x][y]); ctx.fillRect(x * TILE_SIZE - camera.x, y * TILE_SIZE - camera.y, TILE_SIZE, TILE_SIZE);
                } else if (map[x][y] >= 3 && map[x][y] <= 6) {
